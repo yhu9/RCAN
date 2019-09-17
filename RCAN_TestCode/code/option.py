@@ -147,7 +147,7 @@ parser.add_argument('--testset', type=str, default='Set5',
 parser.add_argument('--degradation', type=str, default='BI',
                     help='degradation model: BI, BD')
 
-                    
+
 args = parser.parse_args()
 template.set_template(args)
 

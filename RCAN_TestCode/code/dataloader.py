@@ -63,6 +63,7 @@ class _MSDataLoaderIter(_DataLoaderIter):
         self.timeout = loader.timeout
         self.done_event = threading.Event()
 
+
         self.sample_iter = iter(self.batch_sampler)
 
         if self.num_workers > 0:
@@ -142,3 +143,5 @@ class MSDataLoader(DataLoader):
 
     def __iter__(self):
         return _MSDataLoaderIter(self)
+
+

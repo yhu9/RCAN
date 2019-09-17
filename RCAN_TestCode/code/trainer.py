@@ -108,6 +108,8 @@ class Trainer():
                         #self.ckp.save_results(filename, save_list, scale)
                         self.ckp.save_results_nopostfix(filename, save_list, scale)
 
+                print(len(self.loader_test))
+                quit()
                 self.ckp.log[-1, idx_scale] = eval_acc / len(self.loader_test)
                 best = self.ckp.log.max(0)
                 self.ckp.write_log(
@@ -131,7 +133,7 @@ class Trainer():
         def _prepare(tensor):
             if self.args.precision == 'half': tensor = tensor.half()
             return tensor.to(device)
-           
+
         return [_prepare(_l) for _l in l]
 
     def terminate(self):
