@@ -1,39 +1,23 @@
 import torch
 
 import utility
+#import data
 import model
+#import loss
 from option import args
-from importlib import import_module
-import imageio
+#from trainer import Trainer
 
 torch.manual_seed(args.seed)
 checkpoint = utility.checkpoint(args)
 
-
-
-
-module = import_module('model.rcan')
-model = module.make_model(args).to('cuda:1')
-
-img = imageio.imread('../LR/LRBI/Set5/x4/baby_LRBI_x4.png')
-img = torch.FloatTensor(img).to('cuda:1')
-img = img.permute((2,0,1)).unsqueeze(0)
-print(img.shape)
-quit()
-#img = torch.zeros((1,3,60,60)).float().to('cuda:1')
-model(img)
-
-quit()
-
-
-
 if checkpoint.ok:
     model = model.Model(args, checkpoint)
+    quit()
+    loss = loss.Loss(args, checkpoint) if not args.test_only else None
+    t = Trainer(args, loader, model, loss, checkpoint)
+    while not t.terminate():
+        t.train()
+        t.test()
 
-
-
-    #checkpoint.done()
-
-
-
+    checkpoint.done()
 

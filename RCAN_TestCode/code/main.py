@@ -11,10 +11,20 @@ torch.manual_seed(args.seed)
 checkpoint = utility.checkpoint(args)
 
 if checkpoint.ok:
-    loader = data.Data(args)
-    model = model.Model(args, checkpoint)
-    loss = loss.Loss(args, checkpoint) if not args.test_only else None
-    t = Trainer(args, loader, model, loss, checkpoint)
+    #loader = data.Data(args)
+
+    from importlib import import_module
+    module = import_module('model.'+args.model.lower())
+    model = module.make_model(args).to('cuda:0')
+    kwargs = {}
+    model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=False)
+
+    #model = model.Model(args, checkpoint)
+
+
+    #loss = loss.Loss(args, checkpoint) if not args.test_only else None
+    #t = Trainer(args, loader, model, loss, checkpoint)
+    quit()
     while not t.terminate():
         t.train()
         t.test()

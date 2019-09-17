@@ -8,6 +8,35 @@ parser.add_argument('--debug', action='store_true',
 parser.add_argument('--template', default='.',
                     help='You can set various templates in option.py')
 
+#MASA'S TRAINING SPECIFICATIONS
+parser.add_argument("--srmodel_path",default="../model/RCAN_BIX4.pt", help='Path to the SR model')
+parser.add_argument("--batch_size",default=64, help='Batch Size')
+parser.add_argument("--gamma",default=.9, help='Gamma Value for RL algorithm')
+parser.add_argument("--eps_start",default=.90, help='Epsilon decay start value')
+parser.add_argument("--eps_end",default=0.10, help='Epsilon decay end value')
+parser.add_argument("--eps_decay",default=10000, help='Epsilon decay fractional step size')
+parser.add_argument("--target_update",default=20, help='Target network update time')
+parser.add_argument("--action_space",default=4, help='Action Space size')
+parser.add_argument("--memory_size",default=100000, help='Memory Size')
+parser.add_argument("--model_dir",default="",help='specify if restarting training, or doing testing',required=False)
+parser.add_argument("--training_lrpath",default="../../../data/DIV2K_train_LR_bicubic/X4")
+#parser.add_argument("--training_lrpath",default="LR")
+parser.add_argument("--training_hrpath",default="../../../data/DIV2K_train_HR")
+parser.add_argument("--testing_path",default="../../../data/DIV2K_train_LR_bicubic/X4")
+parser.add_argument("--patchinfo",default='models/patchinfo.npy',help="location of patchinfo data")
+parser.add_argument("--patchsize",default=16,help="patch size to super resolve")
+parser.add_argument("--loadagent",default=False, action='store_const',const=True)
+parser.add_argument("--learning_rate",default=0.0001,help="Learning rate of Super Resolution Models")
+parser.add_argument("--upsize", default=4,help="Upsampling size of the network")
+parser.add_argument("--gen_patchinfo",default=False,action='store_const',const=True)
+parser.add_argument("--device",default='cuda:0',help='set device to train on')
+parser.add_argument("--finetune",default=True,action='store_const',const=False)
+parser.add_argument("--name", required=True, help='Name to give this training session')
+
+#MASA'S TESTING SPECIFICATIONS
+parser.add_argument("--dataroot",default="../../../data/testing")
+parser.add_argument("--down_method",default="BI",help='method of downsampling. [BI|BD]')
+
 # Hardware specifications
 parser.add_argument('--n_threads', type=int, default=3,
                     help='number of threads for data loading')
@@ -51,16 +80,16 @@ parser.add_argument('--chop', action='store_true',
                     help='enable memory-efficient forward')
 
 # Model specifications
-parser.add_argument('--model', default='EDSR',
+parser.add_argument('--model', default='RCAN',
                     help='model name')
 
 parser.add_argument('--act', type=str, default='relu',
                     help='activation function')
-parser.add_argument('--pre_train', type=str, default='.',
+parser.add_argument('--pre_train', type=str, default='../model/RCAN_BIX4.pt',
                     help='pre-trained model directory')
 parser.add_argument('--extend', type=str, default='.',
                     help='pre-trained model directory')
-parser.add_argument('--n_resblocks', type=int, default=16,
+parser.add_argument('--n_resblocks', type=int, default=20,
                     help='number of residual blocks')
 parser.add_argument('--n_feats', type=int, default=64,
                     help='number of feature maps')
@@ -79,8 +108,6 @@ parser.add_argument('--test_every', type=int, default=1000,
                     help='do test per every N batches')
 parser.add_argument('--epochs', type=int, default=3000,
                     help='number of epochs to train')
-parser.add_argument('--batch_size', type=int, default=16,
-                    help='input batch size for training')
 parser.add_argument('--split_batch', type=int, default=1,
                     help='split the batch into smaller chunks')
 parser.add_argument('--self_ensemble', action='store_true',
@@ -97,8 +124,6 @@ parser.add_argument('--lr_decay', type=int, default=200,
                     help='learning rate decay per N epochs')
 parser.add_argument('--decay_type', type=str, default='step',
                     help='learning rate decay type')
-parser.add_argument('--gamma', type=float, default=0.5,
-                    help='learning rate decay factor for step decay')
 parser.add_argument('--optimizer', default='ADAM',
                     choices=('SGD', 'ADAM', 'RMSprop'),
                     help='optimizer to use (SGD | ADAM | RMSprop)')
@@ -147,7 +172,7 @@ parser.add_argument('--testset', type=str, default='Set5',
 parser.add_argument('--degradation', type=str, default='BI',
                     help='degradation model: BI, BD')
 
-                    
+
 args = parser.parse_args()
 template.set_template(args)
 

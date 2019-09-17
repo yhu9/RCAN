@@ -80,13 +80,11 @@ class SISR():
                     model.apply(init_weights)
                     print('Model RRDB Loaded with random weights...')
                 elif args.model == 'RCAN':
-                    torch.manual_seed(args.seed)
+                    module = import_module('model.rcan')
+                    model = module.make_model(args).to(self.device)
                     checkpoint = utility.checkpoint(args)
                     if checkpoint.ok:
-                        module = import_module('model.'+args.model.lower())
-                        model = module.make_model(args).to(self.device)
-                        kwargs = {}
-                        model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=False)
+                        model = model.Model(args,checkpoint)
                     else: print('error')
                 self.SRmodels.append(model)
                 self.SRmodels[-1].to(self.device)
@@ -205,6 +203,8 @@ class SISR():
             random.shuffle(indices)
             #FOR EACH HIGH RESOLUTION IMAGE
             for n,idx in enumerate(indices):
+                sisr_loss = []
+                agent_loss = []
                 HRpath = self.TRAINING_HRPATH[idx]
                 LRpath = self.TRAINING_LRPATH[idx]
                 LR = imageio.imread(LRpath)
@@ -215,10 +215,8 @@ class SISR():
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
                 while len(patch_ids) > 0:
-                    sisr_loss = []
-                    #batch_ids = patch_ids[-self.batch_size:]
-                    #patch_ids = patch_ids[:-self.batch_size]
-                    batch_ids = random.sample(patch_ids,self.batch_size)    #TRAIN ON A SINGLE IMAGE
+                    batch_ids = patch_ids[-self.batch_size:]
+                    patch_ids = patch_ids[:-self.batch_size]
 
                     labels = torch.Tensor(batch_ids).long().cuda()
                     lrbatch = LR[labels,:,:,:]
@@ -243,21 +241,22 @@ class SISR():
                         sisr_loss.append(loss1.item())
 
                     #gather the gradients of the agent policy and constrain them to be within 0-1 with max value as 1
-                    #one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
-                    #weight_identity = self.agent.model(one_matrix,m_labels)
-                    #val,maxid = weight_identity.max(1) #have max of each row equal to 1
-                    #loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
-                    #loss3.backward()
+                    one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
+                    weight_identity = self.agent.model(one_matrix,m_labels)
+                    val,maxid = weight_identity.max(1) #have max of each row equal to 1
+                    loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
+                    loss3.backward()
 
                     #UPDATE THE AGENT POLICY ACCORDING TO ACCUMULATED GRADIENTS FOR ALL SUPER RESOLUTION MODELS
                     self.agent.opt.step()
 
                     #LOG THE INFORMATION
+                    agent_loss.append(loss3.item() + np.mean(sisr_loss))
                     print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}'\
-                          .format(c,n,np.sum(sisr_loss),np.mean(sisr_loss)),end="\n")
+                          .format(c,n,np.mean(agent_loss),np.mean(sisr_loss)),end="\n")
 
                     if self.logger:
-                        self.logger.scalar_summary({'AgentLoss': torch.tensor(np.sum(sisr_loss)), 'SISRLoss': torch.tensor(np.mean(sisr_loss))})
+                        self.logger.scalar_summary({'AgentLoss': torch.tensor(np.mean(agent_loss)), 'SISRLoss': torch.tensor(np.mean(sisr_loss))})
 
                         #CAN'T QUITE GET THE ACTION VISUALIZATION WORK ON THE SERVER
                         #actions_taken = self.agent.model.M.weight.max(1)[1]

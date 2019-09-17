@@ -20,12 +20,14 @@ class Model(nn.Module):
         self.n_GPUs = args.n_GPUs
         self.save_models = args.save_models
 
+        print(args.model.lower())
         module = import_module('model.' + args.model.lower())
         self.model = module.make_model(args).to(self.device)
         if args.precision == 'half': self.model.half()
 
         if not args.cpu and args.n_GPUs > 1:
             self.model = nn.DataParallel(self.model, range(args.n_GPUs))
+        print(args.n_GPUs)
 
         self.load(
             ckp.dir,
@@ -33,6 +35,8 @@ class Model(nn.Module):
             resume=args.resume,
             cpu=args.cpu
         )
+
+        print('model loaded...', ckp.dir, args.resume,args.pre_train,args.cpu)
         if args.print_model: print(self.model)
 
     def forward(self, x, idx_scale):
