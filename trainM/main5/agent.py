@@ -56,31 +56,8 @@ class ReplayMemory(object):
 
     def __len__(self):
         return len(self.memory)
+
 #######################################################################################################
-class Mask(nn.Module):
-    def __init__(self,action_space,num_patches):
-        super(Mask,self).__init__()
-        self.weight = torch.nn.Parameter(data=torch.Tensor(num_patches, action_space), requires_grad=True)
-        self.weight.data.fill_(1/action_space)
-        self.fn = torch.nn.Softmax(dim=1)
-
-    def forward(self,x,labels):
-        probs = self.fn(self.weight[labels])
-        myweights = probs.mul(x)
-        #myweights = F.softmax(myweights)
-        return myweights
-
-class Actor(nn.Module):
-    def __init__(self,action_space=10,num_patches=565408*10):
-        super(Actor,self).__init__()
-        self.M = Mask(action_space,num_patches)
-
-    def forward(self,x,labels):
-
-        weights = self.M(x,labels)
-        #weights = F.softmax(self.M,dim=1)[labels,j] * x
-        return weights
-
 #OUR ENCODER DECODER NETWORK FOR MODEL SELECTION NETWORK
 class Model(nn.Module):
     def __init__(self,action_space=10):
@@ -94,6 +71,7 @@ class Model(nn.Module):
                     nn.ReLU(),
                     nn.Linear(256,action_space)
                 )
+        self.sm = torch.nn.Softmax(dim=1)
 
     def encode(self,x):
         return torch.tanh(self.encoder(x))
@@ -103,13 +81,19 @@ class Model(nn.Module):
 
     def forward(self,x):
         latent_vector = self.encode(x)
-        return self.decode(latent_vector)
+        out = self.decode(latent_vector)
+        out = self.sm(out)
+        return out
 
 #######################################################################################################
 
 #AGENT COMPRISES OF A MODEL SELECTION NETWORK AND MAKES ACTIONS BASED ON IMG PATCHES
 class Agent():
-    def __init__(self,args,num_patches,train=True,chkpoint=None):
+    def __init__(self,args,train=True,chkpoint=None):
+        #RANDOM MODEL INITIALIZATION FUNCTION
+        def init_weights(m):
+            if isinstance(m,nn.Linear) or isinstance(m,nn.Conv2d):
+                torch.nn.init.xavier_uniform_(m.weight.data)
 
         #INITIALIZE HYPER PARAMS
         self.device = args.device
@@ -125,12 +109,13 @@ class Agent():
             self.memory = ReplayMemory(args.memory_size,device=self.device)
 
         #INITIALIZE THE MODELS
-        self.model = Actor(action_space=self.ACTION_SPACE,num_patches=num_patches)
+        #self.model = Actor(action_space=self.ACTION_SPACE,num_patches=num_patches)
+        self.model = Model(action_space=self.ACTION_SPACE)
         if chkpoint:
             self.model.load_state_dict(chkpoint['agent'])
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.01,weight_decay=1e-6)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.0001,weight_decay=1e-5)
 
 #######################################################################################################
 #######################################################################################################

@@ -91,8 +91,8 @@ class SISR():
                 self.SRmodels.append(model)
                 self.SRmodels[-1].to(self.device)
                 self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR))
-            self.patchinfo = np.load(self.patchinfo_dir)
-            self.agent = agent.Agent(args,self.patchinfo.sum())
+            #self.patchinfo = np.load(self.patchinfo_dir)
+            self.agent = agent.Agent(args)
 
     #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
@@ -198,6 +198,7 @@ class SISR():
         #scheduler = torch.optim.lr_scheduler.CyclicLR(self.agent.optimizer,base_lr=0.0001,max_lr=0.1)
         #CREATE A TESTER to test at n iterations
         test = Tester(self.agent, self.SRmodels,evaluate=False,testset=['Set5'])
+        loss = torch.nn.CrossEntropyLoss()
 
         #START TRAINING
         for c in count():
@@ -211,7 +212,7 @@ class SISR():
                 HR = imageio.imread(HRpath)
                 LR,HR = self.getTrainingPatches(LR,HR)
 
-                #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER WITHOUT REPLACEMENT
+                #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER WITHOUT REPLACEMENT???????? MAYBE...
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
                 while len(patch_ids) > 0:
@@ -223,16 +224,21 @@ class SISR():
                     labels = torch.Tensor(batch_ids).long().cuda()
                     lrbatch = LR[labels,:,:,:]
                     hrbatch = HR[labels,:,:,:]
+                    R = torch.zeros((self.batch_size,len(self.SRmodels)),requires_grad=False) #CONTAINER TO STORE SISR RESULTS
 
                     self.agent.opt.zero_grad()    #zero our policy gradients
                     #UPDATE OUR SISR MODELS
                     for j,sisr in enumerate(self.SRmodels):
                         self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
                         hr_pred = sisr(lrbatch)
-                        m_labels = labels + int(np.sum(self.patchinfo[:idx]))
+                        #m_labels = labels + int(np.sum(self.patchinfo[:idx]))
 
                         #update sisr model based on weighted l1 loss
                         l1diff = torch.abs(hr_pred - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
+                        print(R[j,:].shape)
+                        print(l1diff.squeeze(0).shape)
+                        R[j,:] = l1diff.squeeze(0)
+
                         onehot = torch.zeros(self.SR_COUNT); onehot[j] = 1.0                #1x4 vector
                         imgscore = torch.matmul(l1diff.unsqueeze(1),onehot.to(self.device).unsqueeze(0))    #64x4 matrix with column j as l1 diff and rest as zeros
 
@@ -241,6 +247,11 @@ class SISR():
                         loss1.backward(retain_graph=True)
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
+
+                    print(R)
+                    quit()
+
+                    idx = sisr_loss.index(max(sisr_loss))
 
                     #gather the gradients of the agent policy and constrain them to be within 0-1 with max value as 1
                     #one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
