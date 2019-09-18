@@ -198,7 +198,9 @@ class SISR():
         #scheduler = torch.optim.lr_scheduler.CyclicLR(self.agent.optimizer,base_lr=0.0001,max_lr=0.1)
         #CREATE A TESTER to test at n iterations
         test = Tester(self.agent, self.SRmodels,evaluate=False,testset=['Set5'])
-        loss = torch.nn.CrossEntropyLoss()
+        lossfn = torch.nn.CrossEntropyLoss()
+        softmax_fn = torch.nn.Softmax(dim=1)
+        #y_onehot = torch.LongTensor(self.batch_size,len(self.SRmodels)).to(self.device)
 
         #START TRAINING
         for c in count():
@@ -224,7 +226,7 @@ class SISR():
                     labels = torch.Tensor(batch_ids).long().cuda()
                     lrbatch = LR[labels,:,:,:]
                     hrbatch = HR[labels,:,:,:]
-                    R = torch.zeros((self.batch_size,len(self.SRmodels)),requires_grad=False) #CONTAINER TO STORE SISR RESULTS
+                    R = torch.zeros((self.batch_size,len(self.SRmodels)),requires_grad=False).to(self.device) #CONTAINER TO STORE SISR RESULTS
 
                     self.agent.opt.zero_grad()    #zero our policy gradients
                     #UPDATE OUR SISR MODELS
@@ -235,23 +237,27 @@ class SISR():
 
                         #update sisr model based on weighted l1 loss
                         l1diff = torch.abs(hr_pred - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
-                        print(R[j,:].shape)
-                        print(l1diff.squeeze(0).shape)
-                        R[j,:] = l1diff.squeeze(0)
+                        R[:,j] = l1diff.squeeze(0)
 
-                        onehot = torch.zeros(self.SR_COUNT); onehot[j] = 1.0                #1x4 vector
-                        imgscore = torch.matmul(l1diff.unsqueeze(1),onehot.to(self.device).unsqueeze(0))    #64x4 matrix with column j as l1 diff and rest as zeros
+                        #onehot = torch.zeros(self.SR_COUNT); onehot[j] = 1.0                #1x4 vector
+                        #imgscore = torch.matmul(l1diff.unsqueeze(1),onehot.to(self.device).unsqueeze(0))    #64x4 matrix with column j as l1 diff and rest as zeros
 
-                        weighted_imgscore = self.agent.model(imgscore,m_labels)     #do element wise matrix multiplication of l1 diff and softmax weights
+                        probs = softmax_fn(self.agent.model(lrbatch))
+                        weighted_imgscore = probs[:,j] * l1diff
                         loss1 = torch.mean(weighted_imgscore)
-                        loss1.backward(retain_graph=True)
+
+                        loss1.backward()
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
 
-                    print(R)
-                    quit()
+                    #y_onehot.zero_()
+                    #y_onehot.scatter_(1,R.max(1)[1].unsqueeze(1),1)
 
-                    idx = sisr_loss.index(max(sisr_loss))
+                    probs = self.agent.model(lrbatch)
+                    target = R.max(1)[1]
+                    target.requires_grad=False
+                    Agent_loss = lossfn(probs,target)
+                    Agent_loss.backward()
 
                     #gather the gradients of the agent policy and constrain them to be within 0-1 with max value as 1
                     #one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
@@ -262,6 +268,7 @@ class SISR():
 
                     #UPDATE THE AGENT POLICY ACCORDING TO ACCUMULATED GRADIENTS FOR ALL SUPER RESOLUTION MODELS
                     self.agent.opt.step()
+                    quit()
 
                     #LOG THE INFORMATION
                     print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}'\

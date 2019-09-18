@@ -71,7 +71,7 @@ class Model(nn.Module):
                     nn.ReLU(),
                     nn.Linear(256,action_space)
                 )
-        self.sm = torch.nn.Softmax(dim=1)
+        #self.sm = torch.nn.Softmax(dim=1)
 
     def encode(self,x):
         return torch.tanh(self.encoder(x))
@@ -82,7 +82,7 @@ class Model(nn.Module):
     def forward(self,x):
         latent_vector = self.encode(x)
         out = self.decode(latent_vector)
-        out = self.sm(out)
+        #out = self.sm(out)
         return out
 
 #######################################################################################################
