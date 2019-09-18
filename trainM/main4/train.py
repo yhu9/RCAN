@@ -214,6 +214,7 @@ class SISR():
                 #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER WITHOUT REPLACEMENT
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
+                #S_loss = torch.zeros(1,requires_grad=True).float().to(self.device)
                 while len(patch_ids) > 0:
                     sisr_loss = []
                     #batch_ids = patch_ids[-self.batch_size:]
@@ -241,8 +242,10 @@ class SISR():
                         loss1.backward(retain_graph=True)
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
+                        #S_loss += loss1.data[0]
 
                     #gather the gradients of the agent policy and constrain them to be within 0-1 with max value as 1
+                    self.agent.opt.step()
                     #one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
                     #weight_identity = self.agent.model(one_matrix,m_labels)
                     #val,maxid = weight_identity.max(1) #have max of each row equal to 1
@@ -250,7 +253,6 @@ class SISR():
                     #loss3.backward()
 
                     #UPDATE THE AGENT POLICY ACCORDING TO ACCUMULATED GRADIENTS FOR ALL SUPER RESOLUTION MODELS
-                    self.agent.opt.step()
 
                     #LOG THE INFORMATION
                     print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}'\
@@ -265,13 +267,13 @@ class SISR():
                         #self.logger.hist_summary('actions',actions_taken,bins=self.SR_COUNT)
                         self.logger.incstep()
 
-                #save the model after 200 images total of 800 images
-                if (n+1) % 200 == 0:
-                    with torch.no_grad():
-                        psnr,ssim = test.validate(save=False)
-                    [model.train() for model in self.SRmodels]
-                    if self.logger: self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
-                    self.savemodels()
+                    #save the model after 200 images total of 800 images
+                    if (self.logger.step+1) % 200 == 0:
+                        with torch.no_grad():
+                            psnr,ssim = test.validate(save=False)
+                        [model.train() for model in self.SRmodels]
+                        if self.logger: self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
+                        self.savemodels()
 
 ########################################################################################################
 ########################################################################################################

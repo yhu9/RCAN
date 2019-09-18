@@ -91,6 +91,7 @@ class SISR():
                 self.SRmodels.append(model)
                 self.SRmodels[-1].to(self.device)
                 self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR))
+
             #self.patchinfo = np.load(self.patchinfo_dir)
             self.agent = agent.Agent(args)
 
@@ -245,7 +246,6 @@ class SISR():
                         probs = softmax_fn(self.agent.model(lrbatch))
                         weighted_imgscore = probs[:,j] * l1diff
                         loss1 = torch.mean(weighted_imgscore)
-
                         loss1.backward()
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
@@ -268,7 +268,6 @@ class SISR():
 
                     #UPDATE THE AGENT POLICY ACCORDING TO ACCUMULATED GRADIENTS FOR ALL SUPER RESOLUTION MODELS
                     self.agent.opt.step()
-                    quit()
 
                     #LOG THE INFORMATION
                     print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}'\
@@ -283,13 +282,13 @@ class SISR():
                         #self.logger.hist_summary('actions',actions_taken,bins=self.SR_COUNT)
                         self.logger.incstep()
 
-                #save the model after 200 images total of 800 images
-                if (n+1) % 200 == 0:
-                    with torch.no_grad():
-                        psnr,ssim = test.validate(save=False)
-                    [model.train() for model in self.SRmodels]
-                    if self.logger: self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
-                    self.savemodels()
+                    #save the model after 200 images total of 800 images
+                    if (self.logger.step+1) % 200 == 0:
+                        with torch.no_grad():
+                            psnr,ssim = test.validate(save=False)
+                        [model.train() for model in self.SRmodels]
+                        if self.logger: self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
+                        self.savemodels()
 
 ########################################################################################################
 ########################################################################################################
