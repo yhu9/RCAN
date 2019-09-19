@@ -91,13 +91,12 @@ class SISR():
                     else: print('error')
                 self.SRmodels.append(model)
                 self.SRmodels[-1].to(self.device)
-                self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR,weight_decay=1e-4))
-                self.scheduler.append(torch.optim.lr_scheduler.LambdaLR(self.opt,step_size=10000,gamma=0.1))
+                self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=0.01,weight_decay=1e-4))
+                self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],10000,gamma=0.1))
 
 
             #self.patchinfo = np.load(self.patchinfo_dir)
             self.agent = agent.Agent(args)
-            self.scheduler.step()
 
     #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
@@ -257,6 +256,7 @@ class SISR():
                         loss1.backward()
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
+                        self.schedulers[j].step()
 
                     #y_onehot.zero_()
                     #y_onehot.scatter_(1,R.max(1)[1].unsqueeze(1),1)
@@ -275,6 +275,7 @@ class SISR():
 
                     #UPDATE THE AGENT POLICY ACCORDING TO ACCUMULATED GRADIENTS FOR ALL SUPER RESOLUTION MODELS
                     self.agent.opt.step()
+                    self.agent.scheduler.step()
 
                     #LOG THE INFORMATION
                     print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}'\

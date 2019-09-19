@@ -116,7 +116,7 @@ class Agent():
 
         self.model.to(self.device)
         self.opt = torch.optim.Adam(self.model.parameters(),lr=0.01,weight_decay=1e-5)
-        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.opt,step_size=10000,gamma=0.1)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,10000,0.1)
 
 #######################################################################################################
 #######################################################################################################
