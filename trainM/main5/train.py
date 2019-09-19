@@ -91,7 +91,7 @@ class SISR():
                     else: print('error')
                 self.SRmodels.append(model)
                 self.SRmodels[-1].to(self.device)
-                self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=0.01,weight_decay=1e-4))
+                self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
                 self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],10000,gamma=0.1))
 
 
@@ -256,7 +256,8 @@ class SISR():
                         loss1.backward()
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
-                        self.schedulers[j].step()
+                        #for param_group in self.SRoptimizers[j].param_groups:
+                        #    print(param_group['lr'])
 
                     #y_onehot.zero_()
                     #y_onehot.scatter_(1,R.max(1)[1].unsqueeze(1),1)
@@ -265,6 +266,8 @@ class SISR():
                     target.requires_grad=False
                     Agent_loss = lossfn(probs,target)
                     Agent_loss.backward()
+                    for s in self.schedulers: s.step()
+                    self.agent.scheduler.step()
 
                     #gather the gradients of the agent policy and constrain them to be within 0-1 with max value as 1
                     #one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
@@ -275,14 +278,14 @@ class SISR():
 
                     #UPDATE THE AGENT POLICY ACCORDING TO ACCUMULATED GRADIENTS FOR ALL SUPER RESOLUTION MODELS
                     self.agent.opt.step()
-                    self.agent.scheduler.step()
+                    #self.agent.scheduler.step()
 
                     #LOG THE INFORMATION
                     print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}'\
-                          .format(c,n,np.sum(sisr_loss),np.mean(sisr_loss)),end="\n")
+                          .format(c,n,Agent_loss.item(),np.sum(sisr_loss)),end="\n")
 
                     if self.logger:
-                        self.logger.scalar_summary({'AgentLoss': torch.tensor(np.sum(sisr_loss)), 'SISRLoss': torch.tensor(np.mean(sisr_loss))})
+                        self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss))})
 
                         #CAN'T QUITE GET THE ACTION VISUALIZATION WORK ON THE SERVER
                         #actions_taken = self.agent.model.M.weight.max(1)[1]
@@ -291,7 +294,7 @@ class SISR():
                         self.logger.incstep()
 
                     #save the model after 200 images total of 800 images
-                    if (self.logger.step-1) % 200 == 0:
+                    if (self.logger.step) % 200 == 0:
                         with torch.no_grad():
                             psnr,ssim = test.validate(save=False)
                         [model.train() for model in self.SRmodels]

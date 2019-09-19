@@ -115,7 +115,7 @@ class Agent():
             self.model.load_state_dict(chkpoint['agent'])
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.01,weight_decay=1e-5)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-4,weight_decay=1e-7)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,10000,0.1)
 
 #######################################################################################################
