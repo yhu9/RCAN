@@ -69,6 +69,7 @@ class SISR():
         else:
             self.SRmodels = []
             self.SRoptimizers = []
+            self.schedulers = []
             #LOAD A COPY OF THE MODEL N TIMES
             for i in range(self.SR_COUNT):
                 if args.model == 'ESRGAN':
@@ -90,10 +91,13 @@ class SISR():
                     else: print('error')
                 self.SRmodels.append(model)
                 self.SRmodels[-1].to(self.device)
-                self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR))
+                self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR,weight_decay=1e-4))
+                self.scheduler.append(torch.optim.lr_scheduler.LambdaLR(self.opt,step_size=10000,gamma=0.1))
+
 
             #self.patchinfo = np.load(self.patchinfo_dir)
             self.agent = agent.Agent(args)
+            self.scheduler.step()
 
     #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
@@ -108,7 +112,7 @@ class SISR():
             model.load_state_dict(loadedparams["sisr" + str(i)])
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
-            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR))
+            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR,weight_decay=1e-4))
 
     #TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
     def getTrainingPatches(self,LR,HR):
@@ -203,6 +207,10 @@ class SISR():
         softmax_fn = torch.nn.Softmax(dim=1)
         #y_onehot = torch.LongTensor(self.batch_size,len(self.SRmodels)).to(self.device)
 
+        #psnr,ssim = test.validate(save=False)
+        #print(psnr,ssim)
+        #quit()
+
         #START TRAINING
         for c in count():
             indices = list(range(len(self.TRAINING_HRPATH)))
@@ -218,7 +226,7 @@ class SISR():
                 #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER WITHOUT REPLACEMENT???????? MAYBE...
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
-                while len(patch_ids) > 0:
+                for _ in range(10):
                     sisr_loss = []
                     #batch_ids = patch_ids[-self.batch_size:]
                     #patch_ids = patch_ids[:-self.batch_size]
@@ -252,9 +260,8 @@ class SISR():
 
                     #y_onehot.zero_()
                     #y_onehot.scatter_(1,R.max(1)[1].unsqueeze(1),1)
-
                     probs = self.agent.model(lrbatch)
-                    target = R.max(1)[1]
+                    target = R.min(1)[1]
                     target.requires_grad=False
                     Agent_loss = lossfn(probs,target)
                     Agent_loss.backward()
@@ -283,7 +290,7 @@ class SISR():
                         self.logger.incstep()
 
                     #save the model after 200 images total of 800 images
-                    if (self.logger.step+1) % 200 == 0:
+                    if (self.logger.step-1) % 200 == 0:
                         with torch.no_grad():
                             psnr,ssim = test.validate(save=False)
                         [model.train() for model in self.SRmodels]
