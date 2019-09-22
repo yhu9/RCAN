@@ -74,7 +74,7 @@ class SISR():
             for i in range(self.SR_COUNT):
                 if args.model == 'ESRGAN':
                     model = arch.RRDBNet(3,3,64,23,gc=32)
-                    model.load_state_dict(torch.load(SRMODEL_PATH),strict=True)
+                    model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
                     print('ESRGAN loaded')
                 elif args.model == 'random':
                     model = arch.RRDBNet(3,3,64,23,gc=32)
@@ -94,7 +94,6 @@ class SISR():
                 self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
                 self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],10000,gamma=0.1))
 
-
             #self.patchinfo = np.load(self.patchinfo_dir)
             self.agent = agent.Agent(args)
 
@@ -111,7 +110,7 @@ class SISR():
             model.load_state_dict(loadedparams["sisr" + str(i)])
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
-            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR,weight_decay=1e-4))
+            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR,weight_decay=1e-5))
 
     #TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
     def getTrainingPatches(self,LR,HR):
@@ -201,14 +200,10 @@ class SISR():
         #requires pytorch 1.1.0+ which is not possible on the server
         #scheduler = torch.optim.lr_scheduler.CyclicLR(self.agent.optimizer,base_lr=0.0001,max_lr=0.1)
         #CREATE A TESTER to test at n iterations
-        test = Tester(self.agent, self.SRmodels,evaluate=False,testset=['Set5'])
+        test = Tester(self.agent, self.SRmodels,testset=['Set5'])
         lossfn = torch.nn.CrossEntropyLoss()
-        softmax_fn = torch.nn.Softmax(dim=1)
+        softmax_fn = torch.nn.Softmin(dim=1)
         #y_onehot = torch.LongTensor(self.batch_size,len(self.SRmodels)).to(self.device)
-
-        #psnr,ssim = test.validate(save=False)
-        #print(psnr,ssim)
-        #quit()
 
         #START TRAINING
         for c in count():
@@ -237,6 +232,7 @@ class SISR():
                     R = torch.zeros((self.batch_size,len(self.SRmodels)),requires_grad=False).to(self.device) #CONTAINER TO STORE SISR RESULTS
 
                     self.agent.opt.zero_grad()    #zero our policy gradients
+
                     #UPDATE OUR SISR MODELS
                     for j,sisr in enumerate(self.SRmodels):
                         self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
@@ -256,29 +252,20 @@ class SISR():
                         loss1.backward()
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
-                        #for param_group in self.SRoptimizers[j].param_groups:
-                        #    print(param_group['lr'])
 
-                    #y_onehot.zero_()
-                    #y_onehot.scatter_(1,R.max(1)[1].unsqueeze(1),1)
+                    #OPTIMIZE TO OUTPUT HIGHER PROBABILITY FOR MIN LOSS VALUE
+                    R = 1 - softmax_fn(R)
                     probs = self.agent.model(lrbatch)
-                    target = R.min(1)[1]
-                    target.requires_grad=False
-                    Agent_loss = lossfn(probs,target)
+                    #target = R.min(1)[1]
+                    #target.requires_grad=False
+                    #Agent_loss = lossfn(probs,target)
+                    Agent_loss = torch.nn.functional.kl_div(torch.nn.functional.log_softmax(probs,dim=1),R.detach())
                     Agent_loss.backward()
+                    self.agent.opt.step()
+
+                    #INCRIMENT SCHEDULERS
                     for s in self.schedulers: s.step()
                     self.agent.scheduler.step()
-
-                    #gather the gradients of the agent policy and constrain them to be within 0-1 with max value as 1
-                    #one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
-                    #weight_identity = self.agent.model(one_matrix,m_labels)
-                    #val,maxid = weight_identity.max(1) #have max of each row equal to 1
-                    #loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
-                    #loss3.backward()
-
-                    #UPDATE THE AGENT POLICY ACCORDING TO ACCUMULATED GRADIENTS FOR ALL SUPER RESOLUTION MODELS
-                    self.agent.opt.step()
-                    #self.agent.scheduler.step()
 
                     #LOG THE INFORMATION
                     print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}'\

@@ -7,6 +7,7 @@ from itertools import count
 import random
 import time
 import imageio
+import math
 
 #OPEN SOURCE IMPORTS
 import cv2
@@ -37,6 +38,10 @@ torch.manual_seed(args.seed)
 class SISR():
     def __init__(self, args=args):
 
+        #RANDOM MODEL INITIALIZATION FUNCTION
+        def init_weights(m):
+            if isinstance(m,torch.nn.Linear) or isinstance(m,torch.nn.Conv2d):
+                torch.nn.init.xavier_uniform_(m.weight.data)
 
         #INITIALIZE VARIABLES
         self.SR_COUNT = args.action_space
@@ -65,38 +70,48 @@ class SISR():
         else:
             self.SRmodels = []
             self.SRoptimizers = []
+            self.schedulers = []
             #LOAD A COPY OF THE MODEL N TIMES
             for i in range(self.SR_COUNT):
-                model = self.load(args)
+                if args.model == 'ESRGAN':
+                    model = arch.RRDBNet(3,3,64,23,gc=32)
+                    model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
+                    print('ESRGAN loaded')
+                elif args.model == 'random':
+                    model = arch.RRDBNet(3,3,64,23,gc=32)
+                    model.apply(init_weights)
+                    print('Model RRDB Loaded with random weights...')
+                elif args.model == 'RCAN':
+                    torch.manual_seed(args.seed)
+                    checkpoint = utility.checkpoint(args)
+                    if checkpoint.ok:
+                        module = import_module('model.'+args.model.lower())
+                        model = module.make_model(args).to(self.device)
+                        kwargs = {}
+                        model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=False)
+                    else: print('error')
                 self.SRmodels.append(model)
                 self.SRmodels[-1].to(self.device)
-                self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR))
-            self.patchinfo = np.load(self.patchinfo_dir)
-            self.agent = agent.Agent(args,self.patchinfo.sum())
+                self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
+                self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],10000,gamma=0.1))
 
-    #RANDOM MODEL INITIALIZATION FUNCTION
-    def init_weights(self,m):
-        if isinstance(m,torch.nn.Linear) or isinstance(m,torch.nn.Conv2d):
-            torch.nn.init.xavier_uniform_(m.weight.data)
+            #self.patchinfo = np.load(self.patchinfo_dir)
+            self.agent = agent.Agent(args)
 
-    #LOAD A CLEAN MODEL ACCORDING TO THE ARGUMENT
+    #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
-        if args.model == 'ESRGAN':
+        loadedparams = torch.load(args.model_dir,map_location=self.device)
+        #create our agent on based on previous information
+        self.patchinfo = np.load(self.patchinfo_dir)
+        self.agent = agent.Agent(args,self.patchinfo.sum())
+        self.SRmodels = []
+        self.SRoptimizers = []
+        for i in range(args.action_space):
             model = arch.RRDBNet(3,3,64,23,gc=32)
-            model.load_state_dict(torch.load(SRMODEL_PATH),strict=True)
-        elif args.model == 'random':
-            model = arch.RRDBNet(3,3,64,23,gc=32)
-            model.apply(self.init_weights)
-        elif args.model == 'RCAN':
-            torch.manual_seed(args.seed)
-            checkpoint = utility.checkpoint(args)
-            if checkpoint.ok:
-                module = import_module('model.'+args.model.lower())
-                model = module.make_model(args).to(self.device)
-                kwargs = {}
-                model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=False)
-            else: print('error loading RCAN model. QUITING'); quit();
-        return model
+            model.load_state_dict(loadedparams["sisr" + str(i)])
+            self.SRmodels.append(model)
+            self.SRmodels[-1].to(self.device)
+            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR,weight_decay=1e-5))
 
     #TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
     def getTrainingPatches(self,LR,HR):
@@ -178,32 +193,36 @@ class SISR():
         print("total patches", sum(data))
 
     #TRAINING REGIMEN
-    def train(self):
+    def train(self,maxepoch=20,start=1,end=0.001):
         #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
         #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
 
-        #create our agent on based on previous information
         #requires pytorch 1.1.0+ which is not possible on the server
         #scheduler = torch.optim.lr_scheduler.CyclicLR(self.agent.optimizer,base_lr=0.0001,max_lr=0.1)
+
         #CREATE A TESTER to test at n iterations
         test = Tester(self.agent, self.SRmodels,testset=['Set5'])
+        lossfn = torch.nn.CrossEntropyLoss()
+        softmin_fn = torch.nn.Softmin(dim=1)
+        softmax_fn = torch.nn.Softmax(dim=1)
 
         #START TRAINING
-        for c in count():
+        for c in range(maxepoch):
             indices = list(range(len(self.TRAINING_HRPATH)))
+            random.shuffle(indices)
             #FOR EACH HIGH RESOLUTION IMAGE
             for n,idx in enumerate(indices):
+                temperature = end + (start - end) * math.exp(-1 * (c*len(indices) + n) / len(indices)) #exponential decay from start to end
                 HRpath = self.TRAINING_HRPATH[idx]
                 LRpath = self.TRAINING_LRPATH[idx]
                 LR = imageio.imread(LRpath)
                 HR = imageio.imread(HRpath)
                 LR,HR = self.getTrainingPatches(LR,HR)
 
-                #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER WITHOUT REPLACEMENT
+                #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER WITHOUT REPLACEMENT???????? MAYBE...
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
-                #S_loss = torch.zeros(1,requires_grad=True).float().to(self.device)
-                while len(patch_ids) > 0:
+                for _ in range(10):
                     sisr_loss = []
                     #batch_ids = patch_ids[-self.batch_size:]
                     #patch_ids = patch_ids[:-self.batch_size]
@@ -212,41 +231,46 @@ class SISR():
                     labels = torch.Tensor(batch_ids).long().cuda()
                     lrbatch = LR[labels,:,:,:]
                     hrbatch = HR[labels,:,:,:]
+                    R = torch.zeros((self.batch_size,len(self.SRmodels)),requires_grad=False).to(self.device) #CONTAINER TO STORE SISR RESULTS
 
                     self.agent.opt.zero_grad()    #zero our policy gradients
+
                     #UPDATE OUR SISR MODELS
                     for j,sisr in enumerate(self.SRmodels):
                         self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
                         hr_pred = sisr(lrbatch)
-                        m_labels = labels + int(np.sum(self.patchinfo[:idx]))
+                        #m_labels = labels + int(np.sum(self.patchinfo[:idx]))
 
                         #update sisr model based on weighted l1 loss
                         l1diff = torch.abs(hr_pred - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
-                        onehot = torch.zeros(self.SR_COUNT); onehot[j] = 1.0                #1x4 vector
-                        imgscore = torch.matmul(l1diff.unsqueeze(1),onehot.to(self.device).unsqueeze(0))    #64x4 matrix with column j as l1 diff and rest as zeros
+                        R[:,j] = l1diff.squeeze(0)
 
-                        weighted_imgscore = self.agent.model(imgscore,m_labels)     #do element wise matrix multiplication of l1 diff and softmax weights
+                        probs = softmax_fn(self.agent.model(lrbatch))       #ANNEALING PROCESS USING TEMPERATURE ON SOFTMAX TO MOVE TOWARDS HARD ASSIGNMENT
+                        weighted_imgscore = probs[:,j] * l1diff
                         loss1 = torch.mean(weighted_imgscore)
-                        loss1.backward(retain_graph=True)
+                        loss1.backward()
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
-                        #S_loss += loss1.data[0]
 
-                    #gather the gradients of the agent policy and constrain them to be within 0-1 with max value as 1
-                    one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
-                    weight_identity = self.agent.model(one_matrix,m_labels)
-                    val,maxid = weight_identity.max(1) #have max of each row equal to 1
-                    loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
-                    loss3.backward()
+                    #OPTIMIZE TO OUTPUT HIGHER PROBABILITY FOR MIN LOSS VALUE
+                    R = -(R - torch.mean(R,dim=1).unsqueeze(1))
+                    R = softmax_fn(R * 1/ temperature)
+                    probs = self.agent.model(lrbatch)
+                    print(R[0],probs[0])
+                    Agent_loss = torch.nn.functional.kl_div(torch.nn.functional.log_softmax(probs,dim=1),R.detach())
+                    Agent_loss.backward()
                     self.agent.opt.step()
 
+                    #INCRIMENT SCHEDULERS
+                    for s in self.schedulers: s.step()
+                    self.agent.scheduler.step()
+
                     #LOG THE INFORMATION
-                    agent_loss = loss3.item() + np.sum(sisr_loss)
                     print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}'\
-                          .format(c,n,agent_loss,np.mean(sisr_loss)),end="\n")
+                          .format(c,n,Agent_loss.item(),np.sum(sisr_loss)),end="\n")
 
                     if self.logger:
-                        self.logger.scalar_summary({'AgentLoss': torch.tensor([agent_loss]), 'SISRLoss': torch.tensor(np.mean(sisr_loss))})
+                        self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss))})
 
                         #CAN'T QUITE GET THE ACTION VISUALIZATION WORK ON THE SERVER
                         #actions_taken = self.agent.model.M.weight.max(1)[1]
@@ -255,7 +279,7 @@ class SISR():
                         self.logger.incstep()
 
                     #save the model after 200 images total of 800 images
-                    if (self.logger.step+1) % 200 == 0:
+                    if (self.logger.step) % 200 == 0:
                         with torch.no_grad():
                             psnr,ssim = test.validate(save=False)
                         [model.train() for model in self.SRmodels]

@@ -15,6 +15,7 @@ if checkpoint.ok:
     kwargs = {}
     model.load_state_dict(torch.load(args.pre_train, **kwargs),strict=False)
 
+
     print('hello')
     img = imageio.imread('../LR/LRBI/Set5/x4/bird_LRBI_x4.png')
     img = torch.FloatTensor(img).to('cuda:1')

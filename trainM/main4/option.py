@@ -36,6 +36,12 @@ parser.add_argument("--name", required=True, help='Name to give this training se
 #MASA'S TESTING SPECIFICATIONS
 parser.add_argument("--dataroot",default="../../../data/testing")
 parser.add_argument("--down_method",default="BI",help='method of downsampling. [BI|BD]')
+parser.add_argument("--evaluate",default=False,action='store_const',const=True,help='Evaluate a model with validation sets')
+parser.add_argument("--view",default=False,action='store_const',const=True,help='View the agent decisions')
+parser.add_argument("--testbasic",default=False,action='store_const',const=True,help='Basic test on a single lr image without corresponding hr image, and metrics')
+parser.add_argument("--viewM",default=False,action='store_const',const=True,help='view the weight matrix M and its distributions')
+parser.add_argument("--lrimg",default="",help="define low resolution image to test on")
+parser.add_argument("--hrimg",default="",help="define hr resolution image to compare with")
 
 # Hardware specifications
 parser.add_argument('--n_threads', type=int, default=3,
