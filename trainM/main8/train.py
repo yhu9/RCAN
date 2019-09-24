@@ -274,7 +274,7 @@ class SISR():
                       .format(c,n,Agent_loss.item(),np.sum(sisr_loss),temperature, Sloss[0],Sloss[1],Sloss[2]),end="\n")
                 if self.logger:
                     self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss)), "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]})
-                    self.logger.hist_summary('actions',torch.stack(P).view(-1))
+                    if not '0.4' in torch.__version__: self.logger.hist_summary('actions',torch.stack(P).view(-1))
                     self.logger.incstep()
 
                 #save the model after 200 images total of 800 images
