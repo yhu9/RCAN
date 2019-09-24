@@ -193,7 +193,7 @@ class SISR():
         print("total patches", sum(data))
 
     #TRAINING REGIMEN
-    def train(self,maxepoch=20,start=.01,end=0.0001):
+    def train(self,maxepoch=20,start=.01,end=0.00001):
         #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
         #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
 
@@ -224,6 +224,7 @@ class SISR():
                 #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER WITHOUT REPLACEMENT???????? MAYBE...
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
+                P = []
                 for _ in range(5):
                     #batch_ids = patch_ids[-self.batch_size:]
                     #patch_ids = patch_ids[:-self.batch_size]
@@ -258,9 +259,10 @@ class SISR():
                     R = -(R - torch.mean(R,dim=1).unsqueeze(1))
                     R = softmax_fn(R * 1/ temperature)
                     probs = self.agent.model(lrbatch)
-                    Agent_loss = torch.nn.functional.kl_div(torch.nn.functional.log_softmax(probs,dim=1),R.detach())
+                    Agent_loss = torch.nn.functional.kl_div(torch.nn.functional.log_softmax(probs,dim=1),R.detach(),reduction='batchmean')
                     Agent_loss.backward()
                     self.agent.opt.step()
+                    P.append(softmax_fn(probs).detach().cpu())
 
                 #INCRIMENT SCHEDULERS
                 for s in self.schedulers: s.step()
@@ -270,11 +272,8 @@ class SISR():
                 print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, Temp: {:.6f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}'\
                       .format(c,n,Agent_loss.item(),np.sum(sisr_loss),temperature, Sloss[0],Sloss[1],Sloss[2]),end="\n")
                 if self.logger:
-                    self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss))})
-                    #CAN'T QUITE GET THE ACTION VISUALIZATION WORK ON THE SERVER
-                    #actions_taken = self.agent.model.M.weight.max(1)[1]
-                    #self.logger.hist_summary('actions',np.array(actions_taken.tolist()),bins=self.SR_COUNT)
-                    #self.logger.hist_summary('actions',actions_taken,bins=self.SR_COUNT)
+                    self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss)), "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]})
+                    self.logger.hist_summary('actions',torch.stack(P).view(-1))
                     self.logger.incstep()
 
                 #save the model after 200 images total of 800 images

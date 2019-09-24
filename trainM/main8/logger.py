@@ -4,6 +4,7 @@ import os
 import tensorflow as tf
 import numpy as np
 import scipy.misc
+
 from tensorboardX import SummaryWriter
 
 try:
@@ -18,7 +19,6 @@ class Logger(object):
         log_dir = os.path.join('log',log_dir)
         if not os.path.exists(log_dir):
             print('log dir', log_dir)
-            #self.writer = tf.compat.v1.summary.FileWriter(log_dir)
             self.writer = SummaryWriter(log_dir)
         else:
             print('This training session name already exists. Please use a different name or delete it')
@@ -32,8 +32,6 @@ class Logger(object):
 
         for tag, value in data.items():
             self.writer.add_scalar(tag,value,self.step)
-            #summary = tf.compat.v1.Summary(value=[tf.compat.v1.Summary.Value(tag=tag, simple_value=value)])
-            #self.writer.add_summary(summary, self.step)
 
     def image_summary(self, tag, images, step):
         """Log a list of images."""
@@ -58,42 +56,8 @@ class Logger(object):
         summary = tf.Summary(value=img_summaries)
         self.writer.add_summary(summary, step)
 
-    def hist_summary(self, tag, values, bins=5):
+    def hist_summary(self, tag, values):
         """Log a histogram of the tensor of values."""
 
-        '''
-        # Create a histogram using numpy
-        counts, bin_edges = np.histogram(values, bins=bins)
-
-        # Fill the fields of the histogram proto
-        hist = tf.compat.v1.HistogramProto()
-        hist.min = float(np.min(values))
-        hist.max = float(np.max(values))
-        hist.num = int(np.prod(values.shape))
-        hist.sum = float(np.sum(values))
-        hist.sum_squares = float(np.sum(values**2))
-
-        # Drop the start of the first bin
-        bin_edges = bin_edges[1:]
-
-        # Add bin edges and counts
-        for edge in bin_edges:
-            hist.bucket_limit.append(edge)
-        for c in counts:
-            hist.bucket.append(c)
-        '''
-
-        # Create and write Summary
-        print('hello')
-        self.writer.add_histogram(tag,values.clone().cpu().data.numpy(),self.step)
-        print('hello')
-        '''
-        tf.compat.v1.summary.histogram(name=tag,values=values)
-        summary = tf.summary.merge_all()
-        print('hello')
-        self.writer.add_summary(summary, self.step)
-        print('hello')
-        self.writer.flush()
-        print('hello')
-        '''
+        self.writer.add_histogram(tag,values,self.step,bins="auto")
 
