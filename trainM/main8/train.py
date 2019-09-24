@@ -193,7 +193,7 @@ class SISR():
         print("total patches", sum(data))
 
     #TRAINING REGIMEN
-    def train(self,maxepoch=20,start=.001,end=0.000001):
+    def train(self,maxepoch=20,start=.01,end=0.0001):
         #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
         #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
 
@@ -211,9 +211,10 @@ class SISR():
         for c in range(maxepoch):
             indices = list(range(len(self.TRAINING_HRPATH)))
             random.shuffle(indices)
+
             #FOR EACH HIGH RESOLUTION IMAGE
             for n,idx in enumerate(indices):
-                temperature = end + (start - end) * math.exp(-1 * (c*len(indices) + n) / 400) #exponential decay from start to end
+                temperature = end + (start - end) * math.exp(-1 * (c*len(indices) + n) / 800) #exponential decay from start to end
                 HRpath = self.TRAINING_HRPATH[idx]
                 LRpath = self.TRAINING_LRPATH[idx]
                 LR = imageio.imread(LRpath)
@@ -234,53 +235,42 @@ class SISR():
 
                     #update the agent once
                     #GET SISR RESULTS FROM EACH MODEL
-                    if _ == 0:
-                        sisr_loss = []
-                        Sloss = [0] * len(self.SRmodels)
+                    sisr_loss = []
+                    Sloss = [0] * len(self.SRmodels)
                     for j,sisr in enumerate(self.SRmodels):
-                        if _ == 0:
-                            hr_pred = sisr(lrbatch)
+                        hr_pred = sisr(lrbatch)
 
-                            #update sisr model based on weighted l1 loss
-                            l1diff = torch.abs(hr_pred - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
-                            R[:,j] = l1diff.squeeze(0)
-                            Sloss[j] = torch.mean(l1diff)
+                        #update sisr model based on weighted l1 loss
+                        l1diff = torch.abs(hr_pred - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
+                        R[:,j] = l1diff.squeeze(0)
+                        Sloss[j] = torch.mean(l1diff)
 
-                            self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
-                            probs = softmax_fn(self.agent.model(lrbatch))       #ANNEALING PROCESS USING TEMPERATURE ON SOFTMAX TO MOVE TOWARDS HARD ASSIGNMENT
-                            weighted_imgscore = probs[:,j] * l1diff
-                            loss1 = torch.mean(weighted_imgscore)
-                            loss1.backward()
-                            self.SRoptimizers[j].step()
-                            sisr_loss.append(loss1.item())
-                        else:
-                            with torch.no_grad():
-                                hr_pred = sisr(lrbatch)
-                                l1diff = torch.abs(hr_pred - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
-                                R[:,j] = l1diff.squeeze(0)
+                        self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
+                        probs = softmax_fn(self.agent.model(lrbatch))       #ANNEALING PROCESS USING TEMPERATURE ON SOFTMAX TO MOVE TOWARDS HARD ASSIGNMENT
+                        weighted_imgscore = probs[:,j] * l1diff
+                        loss1 = torch.mean(weighted_imgscore)
+                        loss1.backward()
+                        self.SRoptimizers[j].step()
+                        sisr_loss.append(loss1.item())
 
                     #OPTIMIZE TO OUTPUT HIGHER PROBABILITY FOR MIN LOSS VALUE
                     self.agent.opt.zero_grad()    #zero our policy gradients
                     R = -(R - torch.mean(R,dim=1).unsqueeze(1))
                     R = softmax_fn(R * 1/ temperature)
                     probs = self.agent.model(lrbatch)
-                    #print(R[0])
-                    #print(probs[0])
                     Agent_loss = torch.nn.functional.kl_div(torch.nn.functional.log_softmax(probs,dim=1),R.detach())
                     Agent_loss.backward()
                     self.agent.opt.step()
 
-                    #INCRIMENT SCHEDULERS
-                    for s in self.schedulers: s.step()
-                    self.agent.scheduler.step()
+                #INCRIMENT SCHEDULERS
+                for s in self.schedulers: s.step()
+                self.agent.scheduler.step()
 
                 #LOG THE INFORMATION
                 print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, Temp: {:.6f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}'\
                       .format(c,n,Agent_loss.item(),np.sum(sisr_loss),temperature, Sloss[0],Sloss[1],Sloss[2]),end="\n")
-
                 if self.logger:
                     self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss))})
-
                     #CAN'T QUITE GET THE ACTION VISUALIZATION WORK ON THE SERVER
                     #actions_taken = self.agent.model.M.weight.max(1)[1]
                     #self.logger.hist_summary('actions',np.array(actions_taken.tolist()),bins=self.SR_COUNT)
