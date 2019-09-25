@@ -32,6 +32,7 @@ parser.add_argument("--device",default='cuda:0',help='set device to train on')
 parser.add_argument("--finetune",default=True,action='store_const',const=False)
 parser.add_argument("--name", required=True, help='Name to give this training session')
 parser.add_argument("--ESRGAN_PATH",default="../model/RRDB_ESRGAN_x4.pth",help='path to ESRGAN')
+parser.add_argument("--step",default=0,type=int,help='determine where to start training at')
 
 #MASA'S TESTING SPECIFICATIONS
 parser.add_argument("--dataroot",default="../../../data/testing")
