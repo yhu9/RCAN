@@ -52,7 +52,6 @@ class SISR():
         self.TRAINING_LRPATH.sort()
         self.TRAINING_HRPATH.sort()
         self.PATCH_SIZE = args.patchsize
-        self.patchinfo_dir = args.patchinfo
         self.TESTING_PATH = glob.glob(os.path.join(args.testing_path,"*"))
         self.LR = args.learning_rate
         self.UPSIZE = args.upsize
@@ -214,7 +213,7 @@ class SISR():
 
             #FOR EACH HIGH RESOLUTION IMAGE
             for n,idx in enumerate(indices):
-                temperature = end + (start - end) * math.exp(-1 * (c*len(indices) + n) / 800) #exponential decay from start to end
+                temperature = end + (start - end) * math.exp(-1 * (c*len(indices) + n) / 400) #exponential decay from start to end
                 HRpath = self.TRAINING_HRPATH[idx]
                 LRpath = self.TRAINING_LRPATH[idx]
                 LR = imageio.imread(LRpath)

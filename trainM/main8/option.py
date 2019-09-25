@@ -39,6 +39,7 @@ parser.add_argument("--down_method",default="BI",help='method of downsampling. [
 parser.add_argument("--evaluate",default=False,action='store_const',const=True,help='Evaluate a model with validation sets')
 parser.add_argument("--view",default=False,action='store_const',const=True,help='View the agent decisions')
 parser.add_argument("--testbasic",default=False,action='store_const',const=True,help='Basic test on a single lr image without corresponding hr image, and metrics')
+parser.add_argument("--baseline",default=False,action='store_const',const=True,help='Basic test on a single lr image with corresponding hr image using baseline model')
 parser.add_argument("--viewM",default=False,action='store_const',const=True,help='view the weight matrix M and its distributions')
 parser.add_argument("--lrimg",default="",help="define low resolution image to test on")
 parser.add_argument("--hrimg",default="",help="define hr resolution image to compare with")

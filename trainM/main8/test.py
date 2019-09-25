@@ -29,8 +29,8 @@ import utility
 class Tester():
     def __init__(self,agent=None,SRmodels=None,args=args,testset=['Set5','Set14','B100','Urban100','Manga109']):
         self.device = args.device
-        if args.evaluate or args.viewM or args.testbasic:
-            if args.model_dir == "": print("TRAINED AGENT AND SISR MODELS REQUIRED TO EVALUATE OR VIEW ALLOCATION"); quit();
+        if args.evaluate or args.viewM or args.testbasic or args.baseline:
+            if args.model_dir == "" and not args.baseline: print("TRAINED AGENT AND SISR MODELS REQUIRED TO EVALUATE OR VIEW ALLOCATION"); quit();
             else:
                 #LOADS THE TRAINED MODELS AND AGENT
                 self.load(args)
@@ -64,7 +64,13 @@ class Tester():
                     model = module.make_model(args).to(self.device)
                     kwargs = {}
                 else: print('error loading RCAN model. QUITING'); quit();
-            model.load_state_dict(loadedparams["sisr" + str(i)])
+            if args.baseline and args.model == 'ESRGAN':
+                model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
+            elif args.baseline and args.model == 'RCAN':
+                model.load_state_dict(torch.load(args.pre_train),strict=True)
+            else:
+                model.load_state_dict(loadedparams["sisr" + str(i)])
+
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
             self.SRmodels[-1].eval()
@@ -119,8 +125,15 @@ class Tester():
 
     #EVALUATE A PARTICULAR MODEL USING FINAL G FUNCTION
     #NOT MADE YET
-    def evaluate(self,model,lr,hr):
-        h,w,d = lr.shape
+    def evaluate_baseline(self,lr,hr):
+        lr = lr * 1.0 / 255
+        lr_img = torch.from_numpy(lr).to(self.device).permute(2,0,1).unsqueeze(0).float()
+
+        SR = self.SRmodels[0](lr_img).data.squeeze().permute(1,2,0).cpu().clamp_(0,1).numpy()
+        SR = (SR*255).round().astype(np.uint8)
+
+        psnr,ssim = util.calc_metrics(hr,SR,crop_border=self.upsize)
+        return psnr,ssim,SR
 
     #EVALUATE THE IDEAL CASE WHERE WE ACCURATELY IDENTIFY THE IDEAL MODEL K FOR PATCH N
     def evaluate_ideal(self,lr,hr):
@@ -135,7 +148,6 @@ class Tester():
 
         for i in range(0,h-1,stride):
             for j in range(0,w-1,stride):
-
                 lr_img = lr[i:i+size] if i+size < h else lr[i:]
                 lr_img = lr_img[:,j:j+size,:] if j+size < w else lr_img[:,j:]
                 lr_img = torch.from_numpy(np.transpose(lr_img[:,:,[2,1,0]],(2,0,1))).float()
@@ -240,6 +252,25 @@ if __name__ == '__main__':
             plt.hist(data,bins='auto')
             plt.title("histogram of the weight data")
             plt.show()
+
+        elif args.baseline:
+            if args.hrimg != "":
+                lrimg = imageio.imread(args.lrimg)
+                hrimg = imageio.imread(args.hrimg)
+                psnr,ssim,SR = testing_regime.evaluate_baseline(lrimg,hrimg)                     #evaluate the low res image and get testing metrics
+                localinfo = testing_regime.getLocalScore(SR,hrimg)
+
+                print("PSNR SCORE: {:.4f}".format(psnr) )
+                print("SSIM SCORE: {:.4f}".format(ssim) )
+                print("local psnr mu/std: {:.4f} / {:.4f}".format(localinfo['psnr_mean'],localinfo['psnr_std']))
+                print("local ssim mu/std: {:.4f} / {:.4f}".format(localinfo['ssim_mean'],localinfo['ssim_std']))
+
+                cv2.imshow('local psnr',((np.clip(localinfo['local_psnr'],0,50) / 50) * 255).astype(np.uint8))
+                cv2.imshow('local ssim',(localinfo['local_ssim'] * 255).astype(np.uint8))
+                cv2.imshow('Low Res',cv2.cvtColor(lrimg,cv2.COLOR_BGR2RGB))
+                cv2.imshow('High Res',cv2.cvtColor(hrimg,cv2.COLOR_BGR2RGB))
+                cv2.imshow('Super Res',cv2.cvtColor(SR,cv2.COLOR_BGR2RGB))
+                cv2.waitKey(0)
 
         elif args.testbasic:
             if args.hrimg != "":
