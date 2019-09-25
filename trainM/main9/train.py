@@ -52,66 +52,58 @@ class SISR():
         self.TRAINING_LRPATH.sort()
         self.TRAINING_HRPATH.sort()
         self.PATCH_SIZE = args.patchsize
-        self.patchinfo_dir = args.patchinfo
         self.TESTING_PATH = glob.glob(os.path.join(args.testing_path,"*"))
         self.LR = args.learning_rate
         self.UPSIZE = args.upsize
-        self.step = 0
+        self.step = args.step
         self.name = args.name
-        if args.name != 'none':
-            self.logger = logger.Logger(args.name)   #create our logger for tensorboard in log directory
-        else: self.logger = None
+        self.logger = logger.Logger(args.name,self.step+1)   #create our logger for tensorboard in log directory
         self.device = torch.device(args.device) #determine cpu/gpu
 
         #DEFAULT START OR START ON PREVIOUSLY TRAINED EPOCH
-        if args.model_dir != "":
-            self.load(args)
-            print('continue training for model: ' + args.model_dir)
-        else:
-            self.SRmodels = []
-            self.SRoptimizers = []
-            self.schedulers = []
-            #LOAD A COPY OF THE MODEL N TIMES
-            for i in range(self.SR_COUNT):
-                if args.model == 'ESRGAN':
-                    model = arch.RRDBNet(3,3,64,23,gc=32)
-                    model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
-                    print('ESRGAN loaded')
-                elif args.model == 'random':
-                    model = arch.RRDBNet(3,3,64,23,gc=32)
-                    model.apply(init_weights)
-                    print('Model RRDB Loaded with random weights...')
-                elif args.model == 'RCAN':
-                    torch.manual_seed(args.seed)
-                    checkpoint = utility.checkpoint(args)
-                    if checkpoint.ok:
-                        module = import_module('model.'+args.model.lower())
-                        model = module.make_model(args).to(self.device)
-                        kwargs = {}
-                        model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=False)
-                    else: print('error')
-                self.SRmodels.append(model)
-                self.SRmodels[-1].to(self.device)
-                self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
-                self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],10000,gamma=0.1))
-
-            #self.patchinfo = np.load(self.patchinfo_dir)
-            self.agent = agent.Agent(args)
+        self.load(args)
 
     #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
-        loadedparams = torch.load(args.model_dir,map_location=self.device)
-        #create our agent on based on previous information
-        self.patchinfo = np.load(self.patchinfo_dir)
-        self.agent = agent.Agent(args,self.patchinfo.sum())
+        if args.model_dir != "":
+            loadedparams = torch.load(args.model_dir,map_location=self.device)
+            self.agent = agent.Agent(args,chkpoint=loadedparams)
+        else:
+            self.agent = agent.Agent(args)
         self.SRmodels = []
         self.SRoptimizers = []
+        self.schedulers = []
         for i in range(args.action_space):
-            model = arch.RRDBNet(3,3,64,23,gc=32)
-            model.load_state_dict(loadedparams["sisr" + str(i)])
+
+            #CREATE THE ARCH
+            if args.model == 'ESRGAN':
+                model = arch.RRDBNet(3,3,64,23,gc=32)
+            elif args.model == 'RCAN':
+                torch.manual_seed(args.seed)
+                checkpoint = utility.checkpoint(args)
+                if checkpoint.ok:
+                    module = import_module('model.'+args.model.lower())
+                    model = module.make_model(args).to(self.device)
+                    kwargs = {}
+                else: print('error loading RCAN model. QUITING'); quit();
+
+            #LOAD THE WEIGHTS
+            if args.model_dir != "":
+                model.load_state_dict(loadedparams["sisr"+str(i)])
+                print('continuing training')
+            elif args.model == 'ESRGAN':
+                model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
+            elif args.model == 'RCAN':
+                model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=True)
+
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
-            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=self.LR,weight_decay=1e-5))
+            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
+            self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],10000,gamma=0.1))
+
+        #INCREMENT SCHEDULES TO THE CORRECT LOCATION
+        for i in range(args.step):
+            [s.step() for s in self.schedulers]
 
     #TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
     def getTrainingPatches(self,LR,HR):
@@ -175,6 +167,7 @@ class SISR():
         for i,m in enumerate(self.SRmodels):
             modelname = "sisr" + str(i)
             data[modelname] = m.state_dict()
+        data['step'] = self.logger.step
         torch.save(data,"models/" + self.name + "_sisr.pth")
 
     #MAIN FUNCTION WHICH GETS PATCH INFO GIVEN CURRENT TRAINING SET AND PATCHSIZE
@@ -205,7 +198,6 @@ class SISR():
         lossfn = torch.nn.CrossEntropyLoss()
         softmin_fn = torch.nn.Softmin(dim=1)
         softmax_fn = torch.nn.Softmax(dim=1)
-        R = torch.zeros((self.batch_size,len(self.SRmodels)),requires_grad=False).to(self.device) #CONTAINER TO STORE SISR RESULTS
 
         #START TRAINING
         for c in range(maxepoch):
@@ -214,20 +206,18 @@ class SISR():
 
             #FOR EACH HIGH RESOLUTION IMAGE
             for n,idx in enumerate(indices):
-                temperature = end + (start - end) * math.exp(-1 * (c*len(indices) + n) / 800) #exponential decay from start to end
+                temperature = end + (start - end) * math.exp(-1 * self.logger.step / 400) #exponential decay from start to end
                 HRpath = self.TRAINING_HRPATH[idx]
                 LRpath = self.TRAINING_LRPATH[idx]
                 LR = imageio.imread(LRpath)
                 HR = imageio.imread(HRpath)
                 LR,HR = self.getTrainingPatches(LR,HR)
 
-                #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER WITHOUT REPLACEMENT???????? MAYBE...
+                #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
                 P = []
                 for _ in range(5):
-                    #batch_ids = patch_ids[-self.batch_size:]
-                    #patch_ids = patch_ids[:-self.batch_size]
                     batch_ids = random.sample(patch_ids,self.batch_size)    #TRAIN ON A SINGLE IMAGE
 
                     labels = torch.Tensor(batch_ids).long().cuda()
@@ -237,6 +227,7 @@ class SISR():
                     #update the agent once
                     #GET SISR RESULTS FROM EACH MODEL
                     sisr_loss = []
+                    R = torch.zeros((self.batch_size,len(self.SRmodels)),requires_grad=False).to(self.device) #CONTAINER TO STORE SISR RESULTS
                     Sloss = [0] * len(self.SRmodels)
                     for j,sisr in enumerate(self.SRmodels):
                         hr_pred = sisr(lrbatch)
@@ -272,13 +263,12 @@ class SISR():
                 #LOG THE INFORMATION
                 print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, Temp: {:.6f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}'\
                       .format(c,n,Agent_loss.item(),np.sum(sisr_loss),temperature, Sloss[0],Sloss[1],Sloss[2]),end="\n")
-                if self.logger:
-                    self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss)), "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]})
-                    if not '0.4' in torch.__version__: self.logger.hist_summary('actions',torch.stack(P).view(-1))
-                    self.logger.incstep()
+                self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss)), "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]})
+                if not '0.4' in torch.__version__: self.logger.hist_summary('actions',torch.stack(P).view(-1))
+                self.logger.incstep()
 
                 #save the model after 200 images total of 800 images
-                if self.logger and (self.logger.step) % 200 == 0:
+                if self.logger.step % 200 == 0:
                     with torch.no_grad():
                         psnr,ssim = test.validate(save=False)
                     [model.train() for model in self.SRmodels]

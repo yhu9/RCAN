@@ -23,7 +23,6 @@ parser.add_argument("--training_lrpath",default="../../../data/DIV2K_train_LR_bi
 #parser.add_argument("--training_lrpath",default="LR")
 parser.add_argument("--training_hrpath",default="../../../data/DIV2K_train_HR")
 parser.add_argument("--testing_path",default="../../../data/DIV2K_train_LR_bicubic/X4")
-parser.add_argument("--patchinfo",default='models/patchinfo.npy',help="location of patchinfo data")
 parser.add_argument("--patchsize",default=16,help="patch size to super resolve")
 parser.add_argument("--loadagent",default=False, action='store_const',const=True)
 parser.add_argument("--learning_rate",default=0.0001,help="Learning rate of Super Resolution Models")
@@ -33,6 +32,7 @@ parser.add_argument("--device",default='cuda:0',help='set device to train on')
 parser.add_argument("--finetune",default=True,action='store_const',const=False)
 parser.add_argument("--name", required=True, help='Name to give this training session')
 parser.add_argument("--ESRGAN_PATH",default="../model/RRDB_ESRGAN_x4.pth",help='path to ESRGAN')
+parser.add_argument("--step",default=0,type=int,help='determine where to start training at')
 
 #MASA'S TESTING SPECIFICATIONS
 parser.add_argument("--dataroot",default="../../../data/testing")
@@ -40,6 +40,7 @@ parser.add_argument("--down_method",default="BI",help='method of downsampling. [
 parser.add_argument("--evaluate",default=False,action='store_const',const=True,help='Evaluate a model with validation sets')
 parser.add_argument("--view",default=False,action='store_const',const=True,help='View the agent decisions')
 parser.add_argument("--testbasic",default=False,action='store_const',const=True,help='Basic test on a single lr image without corresponding hr image, and metrics')
+parser.add_argument("--baseline",default=False,action='store_const',const=True,help='Basic test on a single lr image with corresponding hr image using baseline model')
 parser.add_argument("--viewM",default=False,action='store_const',const=True,help='view the weight matrix M and its distributions')
 parser.add_argument("--lrimg",default="",help="define low resolution image to test on")
 parser.add_argument("--hrimg",default="",help="define hr resolution image to compare with")

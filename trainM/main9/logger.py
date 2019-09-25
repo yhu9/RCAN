@@ -14,16 +14,12 @@ except ImportError:
 
 class Logger(object):
 
-    def __init__(self, log_dir):
+    def __init__(self, log_dir,step=0):
         """Create a summary writer logging to log_dir."""
         log_dir = os.path.join('log',log_dir)
-        if not os.path.exists(log_dir):
-            print('log dir', log_dir)
-            self.writer = SummaryWriter(log_dir)
-        else:
-            print('This training session name already exists. Please use a different name or delete it')
-            quit()
-        self.step = 0
+        print('logging at: ', log_dir)
+        self.writer = SummaryWriter(log_dir)
+        self.step = step
 
     def incstep(self): self.step += 1
 
