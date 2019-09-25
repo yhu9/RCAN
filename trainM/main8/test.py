@@ -89,25 +89,24 @@ class Tester():
 
     #HELPER FUNCTION TO GET LOCAL SCORE OF THE IMAGE
     def getLocalScore(self,SR,HR,size=16):
-        diff = 0; mean=0; variance=0;
-
+        bound = size // 2
         srimg = util.rgb2ycbcr(SR)
         hrimg = util.rgb2ycbcr(HR)
 
         #Sliding window approach to find local psnr and ssim values
-        srimg = np.pad(srimg,pad_width=((size,size),(size,size)),mode='symmetric')
-        hrimg = np.pad(srimg,pad_width=((size,size),(size,size)),mode='symmetric')
+        srimg = np.pad(srimg,pad_width=((bound,bound),(bound,bound)),mode='symmetric')
+        hrimg = np.pad(hrimg,pad_width=((bound,bound),(bound,bound)),mode='symmetric')
         h,w = hrimg.shape[:2]
         psnr_vals = np.zeros(hrimg.shape)
         ssim_vals = np.zeros(hrimg.shape)
-        for i in range(size,h-size,1):
-            for j in range(size,w-size,1):
-                img1 = srimg[i-size:i+size,j-size:j+size]
-                img2 = hrimg[i-size:i+size,j-size:j+size]
+        for i in range(bound,h-bound-1,1):
+            for j in range(bound,w-bound-1,1):
+                img1 = srimg[i-bound:i+bound+1,j-bound:j+bound+1]
+                img2 = hrimg[i-bound:i+bound+1,j-bound:j+bound+1]
                 psnr_vals[i,j] = util.calc_psnr(img1 * 255,img2 * 255)
                 ssim_vals[i,j] = util.calc_ssim(img1 * 255,img2 * 255)
-        psnr_vals = psnr_vals[size:-size,size:-size]
-        ssim_vals = ssim_vals[size:-size,size:-size]
+        psnr_vals = psnr_vals[bound:-bound,bound:-bound]
+        ssim_vals = ssim_vals[bound:-bound,bound:-bound]
 
         psnr_std = np.std(psnr_vals[psnr_vals > 0])
         psnr_mean = np.mean(psnr_vals[psnr_vals > 0])
@@ -255,7 +254,7 @@ if __name__ == '__main__':
                 print("local psnr mu/std: {:.4f} / {:.4f}".format(localinfo['psnr_mean'],localinfo['psnr_std']))
                 print("local ssim mu/std: {:.4f} / {:.4f}".format(localinfo['ssim_mean'],localinfo['ssim_std']))
 
-                cv2.imshow('local psnr',((localinfo['local_psnr'] / 50) * 255).astype(np.uint8))
+                cv2.imshow('local psnr',((np.clip(localinfo['local_psnr'],0,50) / 50) * 255).astype(np.uint8))
                 cv2.imshow('local ssim',(localinfo['local_ssim'] * 255).astype(np.uint8))
                 cv2.imshow('Choice Mask',cv2.cvtColor(choice,cv2.COLOR_BGR2RGB))
                 cv2.imshow('Low Res',cv2.cvtColor(lrimg,cv2.COLOR_BGR2RGB))
