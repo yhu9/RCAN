@@ -87,37 +87,6 @@ class Tester():
 
         return cv2.cvtColor(canvas,cv2.COLOR_HSV2BGR)
 
-    #HELPER FUNCTION TO GET LOCAL SCORE OF THE IMAGE
-    def getLocalScore(self,SR,HR,size=16):
-        diff = 0; mean=0; variance=0;
-
-        srimg = util.rgb2ycbcr(SR)
-        hrimg = util.rgb2ycbcr(HR)
-
-        #Sliding window approach to find local psnr and ssim values
-        srimg = np.pad(srimg,pad_width=((size,size),(size,size)),mode='symmetric')
-        hrimg = np.pad(srimg,pad_width=((size,size),(size,size)),mode='symmetric')
-        h,w = hrimg.shape[:2]
-        psnr_vals = np.zeros(hrimg.shape)
-        ssim_vals = np.zeros(hrimg.shape)
-        for i in range(size,h-size,1):
-            for j in range(size,w-size,1):
-                img1 = srimg[i-size:i+size,j-size:j+size]
-                img2 = hrimg[i-size:i+size,j-size:j+size]
-                psnr_vals[i,j] = util.calc_psnr(img1 * 255,img2 * 255)
-                ssim_vals[i,j] = util.calc_ssim(img1 * 255,img2 * 255)
-        psnr_vals = psnr_vals[size:-size,size:-size]
-        ssim_vals = ssim_vals[size:-size,size:-size]
-
-        psnr_std = np.std(psnr_vals[psnr_vals > 0])
-        psnr_mean = np.mean(psnr_vals[psnr_vals > 0])
-        ssim_std = np.std(ssim_vals[ssim_vals > 0])
-        ssim_mean = np.mean(ssim_vals[ssim_vals > 0])
-
-        info = {'local_psnr':psnr_vals, 'local_ssim': ssim_vals, 'psnr_std': psnr_std,'psnr_mean':psnr_mean,'ssim_std':ssim_std,'ssim_mean':ssim_mean}
-
-        return info
-
     #EVALUATE A PARTICULAR MODEL USING FINAL G FUNCTION
     #NOT MADE YET
     def evaluate(self,model,lr,hr):
@@ -222,52 +191,47 @@ class Tester():
 if __name__ == '__main__':
     ####################################################################################################
     ####################################################################################################
-    with torch.no_grad():
-        testing_regime = Tester()
-        if args.evaluate:
+    testing_regime = Tester()
+    if args.evaluate:
+        with torch.no_grad():
             testing_regime.validate()
-        elif args.viewM:
+    elif args.viewM:
 
-            patchinfo = np.load(args.patchinfo)
-            M = testing_regime.agent.getM()
-            data = M.detach().cpu().numpy()
-            data = data[:patchinfo[0],:]
+        patchinfo = np.load(args.patchinfo)
+        M = testing_regime.agent.getM()
+        data = M.detach().cpu().numpy()
+        data = data[:patchinfo[0],:]
 
-            print(data[0])
-            quit()
-            np.mean(data)
-            np.std(data)
-            matplotlib.use('tkagg')
-            plt.hist(data,bins='auto')
-            plt.title("histogram of the weight data")
-            plt.show()
+        print(data[0])
+        quit()
+        np.mean(data)
+        np.std(data)
+        matplotlib.use('tkagg')
+        plt.hist(data,bins='auto')
+        plt.title("histogram of the weight data")
+        plt.show()
 
-        elif args.testbasic:
-            if args.hrimg != "":
-                lrimg = imageio.imread(args.lrimg)
-                hrimg = imageio.imread(args.hrimg)
-                psnr,ssim,info = testing_regime.evaluate_ideal(lrimg,hrimg)                     #evaluate the low res image and get testing metrics
-                choice = testing_regime.getPatchChoice(hrimg.astype(np.uint8),info)             #get colored mask on k model decisions
-                localinfo = testing_regime.getLocalScore(info['SRimg'],hrimg)
+    elif args.testbasic:
+        if args.hrimg != "":
 
-                print("PSNR SCORE: {:.4f}".format(psnr) )
-                print("SSIM SCORE: {:.4f}".format(ssim) )
-                print("local psnr mu/std: {:.4f} / {:.4f}".format(localinfo['psnr_mean'],localinfo['psnr_std']))
-                print("local ssim mu/std: {:.4f} / {:.4f}".format(localinfo['ssim_mean'],localinfo['ssim_std']))
+            lrimg = imageio.imread(args.lrimg)
+            hrimg = imageio.imread(args.hrimg)
+            psnr,ssim,info = testing_regime.evaluate_ideal(lrimg,hrimg)
+            choice = testing_regime.getPatchChoice(hrimg.astype(np.uint8),info)
 
-                cv2.imshow('local psnr',((localinfo['local_psnr'] / 50) * 255).astype(np.uint8))
-                cv2.imshow('local ssim',(localinfo['local_ssim'] * 255).astype(np.uint8))
-                cv2.imshow('Choice Mask',cv2.cvtColor(choice,cv2.COLOR_BGR2RGB))
-                cv2.imshow('Low Res',cv2.cvtColor(lrimg,cv2.COLOR_BGR2RGB))
-                cv2.imshow('High Res',cv2.cvtColor(hrimg,cv2.COLOR_BGR2RGB))
-                cv2.imshow('Super Res',cv2.cvtColor(info['SRimg'],cv2.COLOR_BGR2RGB))
-                cv2.waitKey(0)
-
-            elif args.lrimg != "":
-                lrimg = imageio.imread(args.lrimg)
-                print('your life is nothing')
-            else:
-                print('your life is nothing')
+            print("PSNR SCORE: {:.4f}".format(psnr) )
+            print("SSIM SCORE: {:.4f}".format(ssim) )
+            plt.figure(1)
+            cv2.imshow('Choice Mask',cv2.cvtColor(choice,cv2.COLOR_BGR2RGB))
+            cv2.imshow('Low Res',cv2.cvtColor(lrimg,cv2.COLOR_BGR2RGB))
+            cv2.imshow('High Res',cv2.cvtColor(hrimg,cv2.COLOR_BGR2RGB))
+            cv2.imshow('Super Res',cv2.cvtColor(info['SRimg'],cv2.COLOR_BGR2RGB))
+            cv2.waitKey(0)
+        elif args.lrimg != "":
+            lrimg = imageio.imread(args.lrimg)
+            print('your life is nothing')
+        else:
+            print('your life is nothing')
 
 
 

@@ -175,8 +175,7 @@ def calc_psnr(img1, img2):
     img2 = img2.astype(np.float64)
     mse = np.mean((img1 - img2)**2)
     if mse == 0:
-        #return float('inf')
-        return 50.0
+        return float('inf')
     return 20 * math.log10(255.0 / math.sqrt(mse))
 
 
@@ -199,10 +198,8 @@ def ssim(img1, img2):
     sigma2_sq = cv2.filter2D(img2**2, -1, window)[5:-5, 5:-5] - mu2_sq
     sigma12 = cv2.filter2D(img1 * img2, -1, window)[5:-5, 5:-5] - mu1_mu2
 
-    if (mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2) <= 0.0001: ssim_map = 1
-    else:
-        ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
-
+    ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) *
+                                                            (sigma1_sq + sigma2_sq + C2))
     return ssim_map.mean()
 
 

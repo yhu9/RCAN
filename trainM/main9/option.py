@@ -23,6 +23,7 @@ parser.add_argument("--training_lrpath",default="../../../data/DIV2K_train_LR_bi
 #parser.add_argument("--training_lrpath",default="LR")
 parser.add_argument("--training_hrpath",default="../../../data/DIV2K_train_HR")
 parser.add_argument("--testing_path",default="../../../data/DIV2K_train_LR_bicubic/X4")
+parser.add_argument("--patchinfo",default='models/patchinfo.npy',help="location of patchinfo data")
 parser.add_argument("--patchsize",default=16,help="patch size to super resolve")
 parser.add_argument("--loadagent",default=False, action='store_const',const=True)
 parser.add_argument("--learning_rate",default=0.0001,help="Learning rate of Super Resolution Models")
