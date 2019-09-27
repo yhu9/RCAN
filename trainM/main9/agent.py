@@ -8,9 +8,7 @@ from collections import namedtuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-#CUSTOM IMPORTS
-import resnet
+import torchvision.models as models
 
 #######################################################################################################
 #######################################################################################################
@@ -63,7 +61,7 @@ class Model(nn.Module):
     def __init__(self,action_space=10):
         super(Model,self).__init__()
 
-        self.encoder = resnet.resnet18()
+        self.encoder = models.resnet18(pretrained=True)
         self.decoder = torch.nn.Sequential(
                     nn.Linear(1000,512),
                     nn.ReLU(),
@@ -71,7 +69,6 @@ class Model(nn.Module):
                     nn.ReLU(),
                     nn.Linear(256,action_space)
                 )
-        #self.sm = torch.nn.Softmax(dim=1)
 
     def encode(self,x):
         return torch.tanh(self.encoder(x))
@@ -82,7 +79,6 @@ class Model(nn.Module):
     def forward(self,x):
         latent_vector = self.encode(x)
         out = self.decode(latent_vector)
-        #out = self.sm(out)
         return out
 
 #######################################################################################################

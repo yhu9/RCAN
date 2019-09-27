@@ -26,8 +26,9 @@ import utility
 ####################################################################################################
 
 #OUR GENERAL TESTING CLASS WHICH CAN BE USED DURING TRAINING AND EVALUTATION
+#testset=['Set5','Set14','B100','Urban100','Manga109']
 class Tester():
-    def __init__(self,agent=None,SRmodels=None,args=args,testset=['Set5','Set14','B100','Urban100','Manga109']):
+    def __init__(self,agent=None,SRmodels=None,args=args,testset=['Set5','Set14','B100']):
         self.device = args.device
         if args.evaluate or args.viewM or args.testbasic or args.baseline:
             if args.model_dir == "" and not args.baseline: print("TRAINED AGENT AND SISR MODELS REQUIRED TO EVALUATE OR VIEW ALLOCATION"); quit();
@@ -46,6 +47,7 @@ class Tester():
         self.upsize = args.upsize
         self.resfolder = 'x' + str(args.upsize)
         self.PATCH_SIZE = args.patchsize
+        self.name = args.name
 
     #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
@@ -221,10 +223,18 @@ class Tester():
                 #cv2.imshow('Low Res',cv2.cvtColor(lr,cv2.COLOR_BGR2RGB))
                 #cv2.imshow('High Res',cv2.cvtColor(hr,cv2.COLOR_BGR2RGB))
                 #cv2.imshow('Super Res',cv2.cvtColor(info['SRimg'],cv2.COLOR_BGR2RGB))
-                #cv2.waitKey(1)
+                if save:
+                    outpath = './'
+                    for path in ['../../RCAN_TestCode/SR','BI',self.name,vset,'x' + str(self.upsize)]:
+                        outpath = os.path.join(outpath,path)
+                        if not os.path.exists(outpath): os.mkdir(outpath)
+                    outpath = os.path.splitext(os.path.join(outpath, os.path.basename(hr_file)))[0] +'_' + self.name + '_x' + str(self.upsize) + '.png'
+                    imageio.imwrite(outpath,info['SRimg'])
+
             mu_psnr = np.mean(np.array(scores[vset])[:,0])
             mu_ssim = np.mean(np.array(scores[vset])[:,1])
             print(vset + ' scores',mu_psnr,mu_ssim)
+
         return mu_psnr,mu_ssim
 
 ####################################################################################################

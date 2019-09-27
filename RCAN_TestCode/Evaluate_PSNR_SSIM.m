@@ -1,11 +1,13 @@
 function Evaluate_PSNR_SSIM()
 
-clear all; close all; clc
+%clear all; close all; clc
 
 %% set path
 degradation = 'BI'; % BI, BD
-methods = {'RCAN', 'RCANplus'};
+%methods = {'RCAN', 'RCANplus'};
+methods = {'train30'};
 dataset = {'Set5'};
+%11. conda install -c 1adrianb face_alignment
 ext = {'*.jpg', '*.png', '*.bmp'};
 num_method = length(methods);
 num_set = length(dataset);
@@ -13,7 +15,8 @@ record_results_txt = ['PSNR_SSIM_Results_', degradation,'_model.txt'];
 results = fopen(fullfile(record_results_txt), 'wt');
 
 if strcmp(degradation, 'BI') 
-    scale_all = [2, 3, 4, 8];
+    %scale_all = [2, 3, 4, 8];
+    scale_all = 4;
 else
     scale_all = 3;
 end

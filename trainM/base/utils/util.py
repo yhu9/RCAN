@@ -134,38 +134,6 @@ def calc_metrics(img1, img2, crop_border, test_Y=True,out=''):
         ssim = 0.0
     return psnr,ssim
 
-    #Sliding window approach to find local psnr and ssim values
-    #psnr_vals = np.zeros(cropped_im1.shape)
-    #ssim_vals = np.zeros(cropped_im1.shape)
-    #h,w = cropped_im1.shape[:2]
-    #for i in range(16,h-16,1):
-    #    for j in range(16,w-16,1):
-    #        img1 = cropped_im1[i-16:i+16,j-16:j+16]
-    #        img2 = cropped_im2[i-16:i+16,j-16:j+16]
-    #        psnr_vals[i,j] = calc_psnr(img1 * 255,img2 * 255)
-    #        ssim_vals[i,j] = calc_ssim(img1 * 255,img2 * 255)
-
-    #psnr_std = np.std(psnr_vals[psnr_vals > 0])
-    #psnr_mean = np.mean(psnr_vals[psnr_vals > 0])
-    #ssim_std = np.std(ssim_vals[ssim_vals > 0])
-    #ssim_mean = np.mean(ssim_vals[ssim_vals > 0])
-
-    #psnr_vals[psnr_vals > 0] -= np.min(psnr_vals[psnr_vals > 0])
-    #psnr_vals /= np.max(psnr_vals)
-    #psnr_vals *= 255.0
-    #ssim_vals[ssim_vals > 0] -= np.min(ssim_vals[ssim_vals > 0])
-    #ssim_vals /= np.max(ssim_vals)
-    #ssim_vals *= 255.0
-    #print(psnr_std, psnr_mean)
-    #print(ssim_std, ssim_mean)
-
-    #np.save(os.path.join('out','psnr_' + out),psnr_vals)
-    #np.save(os.path.join('out','ssim_' + out),ssim_vals)
-
-    #cv2.imshow('psnr',psnr_vals.astype(np.uint8))
-    #cv2.imshow('ssim',(ssim_vals * 255).astype(np.uint8))
-    #cv2.waitKey(1)
-
     return psnr, ssim
 
 def calc_psnr(img1, img2):
