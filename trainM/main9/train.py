@@ -239,6 +239,7 @@ class SISR():
 
                         self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
                         probs = softmax_fn(self.agent.model(lrbatch))       #ANNEALING PROCESS USING TEMPERATURE ON SOFTMAX TO MOVE TOWARDS HARD ASSIGNMENT
+
                         weighted_imgscore = probs[:,j] * l1diff
                         loss1 = torch.mean(weighted_imgscore)
                         loss1.backward()
@@ -247,11 +248,20 @@ class SISR():
 
                     #OPTIMIZE TO OUTPUT HIGHER PROBABILITY FOR MIN LOSS VALUE
                     self.agent.opt.zero_grad()    #zero our policy gradients
-                    R = -(R - torch.mean(R,dim=1).unsqueeze(1))
-                    R = softmax_fn(R * 1/ temperature)
+                    R = -((R - torch.mean(R,dim=1).unsqueeze(1)) * 1/(R.max(dim=1)[0] - R.min(dim=1)[0]).unsqueeze(1).clamp(temperature,100))
                     probs = self.agent.model(lrbatch)
-                    if '0.4' in torch.__version__: Agent_loss = torch.nn.functional.kl_div(torch.nn.functional.log_softmax(probs,dim=1),R.detach())
-                    else: Agent_loss = torch.nn.functional.kl_div(torch.nn.functional.log_softmax(probs,dim=1),R.detach(),reduction='batchmean')
+                    log_sm = torch.nn.functional.log_softmax(probs,dim=1)
+
+                    #CREATE MIXTURE OF RANDOM AND GREEDY CHOICE IN BATCH
+                    eps_threshold = 0.05 + (1.0 - 0.05) * math.exp(-1 * self.logger.step / 600)
+                    randchoice = torch.argmax(torch.rand(log_sm.shape),dim=1).to(self.device).unsqueeze(1).float()
+                    greedychoice = torch.argmax(log_sm,dim=1).unsqueeze(1).float()
+                    selection = (torch.rand(log_sm.shape[0]).unsqueeze(1) < eps_threshold).float().to(self.device)
+                    choice = randchoice * selection + greedychoice * (1-selection)
+                    action = log_sm.gather(1,choice.long())
+
+                    #SUM ACTIONS TO TRY MAXIMIZE REWARD
+                    Agent_loss = torch.sum(action * R.detach())
                     Agent_loss.backward()
                     self.agent.opt.step()
                     P.append(softmax_fn(probs).detach().cpu())
@@ -262,8 +272,8 @@ class SISR():
 
                 #LOG THE INFORMATION
                 print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, Temp: {:.6f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}'\
-                      .format(c,n,Agent_loss.item(),np.sum(sisr_loss),temperature, Sloss[0],Sloss[1],Sloss[2]),end="\n")
-                self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss)), "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]})
+                      .format(c,n,-Agent_loss.item(),np.sum(sisr_loss),temperature, Sloss[0],Sloss[1],Sloss[2]),end="\n")
+                self.logger.scalar_summary({'AgentLoss': -Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss)), "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]})
                 if not '0.4' in torch.__version__: self.logger.hist_summary('actions',torch.stack(P).view(-1))
                 self.logger.incstep()
 

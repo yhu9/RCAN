@@ -60,6 +60,10 @@ class ReplayMemory(object):
 class Model(nn.Module):
     def __init__(self,action_space=10):
         super(Model,self).__init__()
+        #RANDOM MODEL INITIALIZATION FUNCTION
+        def init_weights(m):
+            if isinstance(m,nn.Linear) or isinstance(m,nn.Conv2d):
+                torch.nn.init.xavier_uniform_(m.weight.data)
 
         self.encoder = models.resnet18(pretrained=True)
         self.decoder = torch.nn.Sequential(
@@ -69,6 +73,8 @@ class Model(nn.Module):
                     nn.ReLU(),
                     nn.Linear(256,action_space)
                 )
+        self.decoder.apply(init_weights)
+
 
     def encode(self,x):
         return torch.tanh(self.encoder(x))
@@ -86,10 +92,6 @@ class Model(nn.Module):
 #AGENT COMPRISES OF A MODEL SELECTION NETWORK AND MAKES ACTIONS BASED ON IMG PATCHES
 class Agent():
     def __init__(self,args,train=True,chkpoint=None):
-        #RANDOM MODEL INITIALIZATION FUNCTION
-        def init_weights(m):
-            if isinstance(m,nn.Linear) or isinstance(m,nn.Conv2d):
-                torch.nn.init.xavier_uniform_(m.weight.data)
 
         #INITIALIZE HYPER PARAMS
         self.device = args.device
@@ -111,7 +113,7 @@ class Agent():
             self.model.load_state_dict(chkpoint['agent'])
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.001,weight_decay=1e-4)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.0001)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.5)
 
 #######################################################################################################
