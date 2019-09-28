@@ -246,23 +246,14 @@ class SISR():
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
 
+
                     #OPTIMIZE TO OUTPUT HIGHER PROBABILITY FOR MIN LOSS VALUE
                     self.agent.opt.zero_grad()    #zero our policy gradients
-                    #R = -((R - torch.mean(R,dim=1).unsqueeze(1)) * 1/(R.max(dim=1)[0] - R.min(dim=1)[0]).unsqueeze(1).clamp(temperature,100))
-                    R = -((R - torch.mean(R,dim=1).unsqueeze(1)))
+                    R = -(R - torch.mean(R,dim=1).unsqueeze(1))
+                    R = softmax_fn(R * 1/ temperature)
                     probs = self.agent.model(lrbatch)
-                    log_sm = torch.nn.functional.log_softmax(probs,dim=1)
-
-                    #CREATE MIXTURE OF RANDOM AND GREEDY CHOICE IN BATCH
-                    eps_threshold = 0.05 + (1.0 - 0.05) * math.exp(-1 * self.logger.step / 600)
-                    randchoice = torch.argmax(torch.rand(log_sm.shape),dim=1).to(self.device).unsqueeze(1).float()
-                    greedychoice = torch.argmax(log_sm,dim=1).unsqueeze(1).float()
-                    selection = (torch.rand(log_sm.shape[0]).unsqueeze(1) < eps_threshold).float().to(self.device)
-                    choice = randchoice * selection + greedychoice * (1-selection)
-                    action = log_sm.gather(1,choice.long())
-
-                    #SUM ACTIONS TO TRY MAXIMIZE REWARD
-                    Agent_loss = torch.mean(action * R.detach())
+                    if '0.4' in torch.__version__: Agent_loss = torch.nn.functional.kl_div(torch.nn.functional.log_softmax(probs,dim=1),R.detach())
+                    else: Agent_loss = torch.nn.functional.kl_div(torch.nn.functional.log_softmax(probs,dim=1),R.detach(),reduction='batchmean')
                     Agent_loss.backward()
                     self.agent.opt.step()
                     P.append(softmax_fn(probs).detach().cpu())
