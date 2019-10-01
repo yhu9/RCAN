@@ -46,10 +46,9 @@ if checkpoint.ok:
         model.eval()
         with torch.no_grad():
             sr = model(img)
-
             sr = sr.squeeze(0).permute(1,2,0).data.cpu().numpy()
-        # hr = hr
 
+        # hr = hr
         psnr,ssim = util.calc_metrics(hr,sr,4)
         psnr_scores.append(psnr)
         ssim_scores.append(ssim)

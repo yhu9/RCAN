@@ -78,10 +78,10 @@ class RCAN(nn.Module):
         # RGB mean for DIVFlickr2K 1-3450
         # rgb_mean = (0.4690, 0.4490, 0.4036)
         if args.data_train == 'DIV2K':
-            #print('Use DIV2K mean (0.4488, 0.4371, 0.4040)')
+            print('Use DIV2K mean (0.4488, 0.4371, 0.4040)')
             rgb_mean = (0.4488, 0.4371, 0.4040)
         elif args.data_train == 'DIVFlickr2K':
-            #print('Use DIVFlickr2K mean (0.4690, 0.4490, 0.4036)')
+            print('Use DIVFlickr2K mean (0.4690, 0.4490, 0.4036)')
             rgb_mean = (0.4690, 0.4490, 0.4036)
         rgb_std = (1.0, 1.0, 1.0)
         self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)

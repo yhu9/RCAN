@@ -48,6 +48,7 @@ class Tester():
         self.resfolder = 'x' + str(args.upsize)
         self.PATCH_SIZE = args.patchsize
         self.name = args.name
+        self.model = args.model
 
     #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
@@ -81,8 +82,9 @@ class Tester():
             self.SRmodels[-1].eval()
 
     #HELPER FUNCTION TO SHOW DECISION MAKING OF THE MODEL ON EVALUATION IMAGE
-    def getPatchChoice(self,hr,info,save=False):
+    def getPatchChoice(self,info,save=False):
         cats = np.unique(info['assignment'])
+        hr = info['SRimg']
         cat_colors = {0: [255,0,0], 1: [0,255,0], 2:[0,0,255], 3:[0,255,255], 4:[255,0,255],5:[255,255,0]}
 
         canvas = hr.copy().astype(np.uint8)
@@ -131,21 +133,25 @@ class Tester():
     #EVALUATE A PARTICULAR MODEL USING FINAL G FUNCTION
     #NOT MADE YET
     def evaluate_baseline(self,lr,hr):
-        #lr = lr * 1.0 / 255
+        if self.model == 'ESRGAN': lr = lr * 1.0 / 255.0
         img = torch.FloatTensor(lr).to(self.device)
         lr_img = img.permute((2,0,1)).unsqueeze(0)
 
         self.SRmodels[0].eval()
         SR = self.SRmodels[0](lr_img)
         SR = SR.squeeze(0).permute(1,2,0).data.cpu().numpy()
+        if self.model == 'ESRGAN':
+            SR = np.clip(SR * 255.0,0,255)
+            psnr,ssim = util.calc_metrics(hr,SR,4)
+        elif self.model == 'RCAN':
+            SR = np.clip(SR,0,255)
+            psnr,ssim = util.calc_metrics(hr,SR,4)
 
-        psnr,ssim = util.calc_metrics(hr,SR,4)
-        SR = (SR).round().astype(np.uint8)
         return psnr,ssim,SR
 
     #EVALUATE THE IDEAL CASE WHERE WE ACCURATELY IDENTIFY THE IDEAL MODEL K FOR PATCH N
-    def evaluate_ideal(self,lr,hr,step=8):
-        lr = lr * 1.0 / 255
+    def evaluate_ideal(self,lr,hr):
+        if self.model == 'ESRGAN': lr = lr * 1.0 / 255.0
         h,w,d = lr.shape
         hrh,hrw,_ = hr.shape
         canvas = np.zeros((h*4,w*4,3))
@@ -158,20 +164,22 @@ class Tester():
             for j in range(0,w-1,stride):
                 lr_img = lr[i:i+size] if i+size < h else lr[i:]
                 lr_img = lr_img[:,j:j+size,:] if j+size < w else lr_img[:,j:]
-                lr_img = torch.from_numpy(np.transpose(lr_img[:,:,[2,1,0]],(2,0,1))).float()
-                lr_img = lr_img.unsqueeze(0)
-                lr_img = lr_img.to(self.device)
+                #lr_img = torch.from_numpy(np.transpose(lr_img[:,:,[2,1,0]],(2,0,1))).float()
+                lr_img = torch.FloatTensor(lr_img).to(self.device)
+                lr_img = lr_img.permute((2,0,1)).unsqueeze(0)
+                #lr_img = lr_img.to(self.device)
                 hr_img = hr[i*self.upsize:(i+size)*self.upsize,j*self.upsize:(j+size)*self.upsize,:]
 
                 psnrscores = []
                 ssimscores = []
                 sr_predictions = []
                 for sisr in self.SRmodels:
-                    hr_hat = sisr(lr_img).data.squeeze().float().cpu().clamp_(0,1).numpy()
-                    hr_hat = np.transpose(hr_hat[[2,1,0],:,:],(1,2,0))
-                    hr_hat = (hr_hat * 255.0).round()
-                    sr_predictions.append(hr_hat)
+                    hr_hat = sisr(lr_img)
+                    hr_hat = hr_hat.squeeze(0).permute(1,2,0).data.cpu().numpy()
 
+                    if self.model == 'ESRGAN': hr_hat = hr_hat * 255.0
+                    hr_hat = np.clip(hr_hat,0,255)
+                    sr_predictions.append(hr_hat)
                     psnr,ssim = util.calc_metrics(hr_img,hr_hat,crop_border=self.upsize)
                     psnrscores.append(psnr)
                     ssimscores.append(ssim)
@@ -205,11 +213,14 @@ class Tester():
             LR_files = [os.path.join(LR_dir, f) for f in os.listdir(LR_dir)]
             HR_files.sort()
             LR_files.sort()
+            HR_files.reverse()
+            LR_files.reverse()
 
             #APPLY SISR ON EACH LR IMAGE AND GATHER RESULTS
             for hr_file,lr_file in zip(HR_files,LR_files):
                 hr = imageio.imread(hr_file)
                 lr = imageio.imread(lr_file)
+                #psnr,ssim,info = self.evaluate_baseline(lr,hr)
                 psnr,ssim,info = self.evaluate_ideal(lr,hr)
                 print(lr_file,psnr,ssim)
                 scores[vset].append([psnr,ssim])
@@ -235,7 +246,7 @@ class Tester():
             mu_ssim = np.mean(np.array(scores[vset])[:,1])
             print(vset + ' scores',mu_psnr,mu_ssim)
 
-        return mu_psnr,mu_ssim
+        return mu_psnr,mu_ssim,info
 
 ####################################################################################################
 ####################################################################################################
@@ -287,7 +298,7 @@ if __name__ == '__main__':
                 lrimg = imageio.imread(args.lrimg)
                 hrimg = imageio.imread(args.hrimg)
                 psnr,ssim,info = testing_regime.evaluate_ideal(lrimg,hrimg)                     #evaluate the low res image and get testing metrics
-                choice = testing_regime.getPatchChoice(hrimg.astype(np.uint8),info)             #get colored mask on k model decisions
+                choice = testing_regime.getPatchChoice(info)             #get colored mask on k model decisions
                 localinfo = testing_regime.getLocalScore(info['SRimg'],hrimg)
 
                 print("PSNR SCORE: {:.4f}".format(psnr) )

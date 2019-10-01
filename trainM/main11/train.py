@@ -59,9 +59,13 @@ class SISR():
         self.name = args.name
         self.logger = logger.Logger(args.name,self.step+1)   #create our logger for tensorboard in log directory
         self.device = torch.device(args.device) #determine cpu/gpu
+        self.model = args.model
 
         #DEFAULT START OR START ON PREVIOUSLY TRAINED EPOCH
         self.load(args)
+
+        #INITIALIZE TESTING MODULE
+        self.test = Tester(self.agent, self.SRmodels,args=args,testset=['Set5'])
 
     #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
@@ -139,8 +143,10 @@ class SISR():
         HRpatches = HRpatches.permute(2,0,1,3,4,5).contiguous().view(-1,patch_size*self.UPSIZE,patch_size*self.UPSIZE,3)
         LRpatches = LRpatches.permute(0,3,1,2)
         HRpatches = HRpatches.permute(0,3,1,2)
-        LRpatches = LRpatches * 1.0 / 255
-        HRpatches = HRpatches * 1.0 / 255
+
+        if self.model == 'ESRGAN':
+            LRpatches = LRpatches * 1.0 / 255
+            HRpatches = HRpatches * 1.0 / 255
 
         return LRpatches.to(self.device),HRpatches.to(self.device)
 
@@ -185,39 +191,186 @@ class SISR():
         print("num images", len(data))
         print("total patches", sum(data))
 
+    #TRAIN SISR MODELS ACCORDING TO WEIGHT MATRIX LIST
+    def trainSISR(self,curlist):
+        for i in range(20):
+            idx = random.choice(curlist)
+            HRpath = self.TRAINING_HRPATH[idx]
+            LRpath = self.TRAINING_LRPATH[idx]
+            LR = imageio.imread(LRpath)
+            HR = imageio.imread(HRpath)
+            LR,HR = self.getTrainingPatches(LR,HR)
+
+            losses = np.zeros(100)
+            patch_ids = list(range(len(LR)))
+
+            for j in range(5):
+                batch_ids = random.sample(patch_ids,self.batch_size)    #TRAIN ON A SINGLE IMAGE
+
+                labels = torch.Tensor(batch_ids).long().to(self.device)
+                lrbatch = LR[labels,:,:,:]
+                hrbatch = HR[labels,:,:,:]
+
+                self.agent.O[idx].zero_grad()
+                sisrloss = torch.zeros((self.batch_size,self.SR_COUNT)).to(self.device)
+                Sloss = [0] * len(self.SRmodels)
+                for i,sisr in enumerate(self.SRmodels):
+                    self.SRoptimizers[i].zero_grad()           #zero our sisr gradients
+                    sr = sisr(lrbatch)
+
+                    #update sisr model based on weighted l1 loss
+                    if self.model == 'ESRGAN':
+                        l1diff = torch.abs(sr - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
+                    elif self.model == 'RCAN':
+                        l1diff = torch.abs(sr - hrbatch).view(len(batch_ids),-1).mean(1) / 255.0           #64x1 vector
+
+                    onehot = torch.zeros(self.SR_COUNT); onehot[i] = 1.0                #1x4 vector as target
+
+                    imgscore = torch.matmul(l1diff.unsqueeze(1),onehot.to(self.device).unsqueeze(0))    #64x4 matrix with column j as l1 diff and rest as zeros
+
+                    weighted_imgscore = self.agent.M[idx](imgscore,labels)     #do element wise matrix multiplication of l1 diff and softmax weights
+                    sisrloss += weighted_imgscore
+                    Sloss[i] = weighted_imgscore.mean()
+
+                colmean = sisrloss.mean(0).sum()
+                colmean.backward()
+                [opt.step() for opt in self.SRoptimizers]
+
     #TRAINING REGIMEN
-    def train(self,maxepoch=20,start=.01,end=0.00001):
+    def trainM(self,maxepoch=25):
         #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
         #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
 
         #requires pytorch 1.1.0+ which is not possible on the server
         #scheduler = torch.optim.lr_scheduler.CyclicLR(self.agent.optimizer,base_lr=0.0001,max_lr=0.1)
 
-        #CREATE A TESTER to test at n iterations
-        test = Tester(self.agent, self.SRmodels,testset=['Set5'])
+        #START TRAINING
+        indices = list(range(len(self.TRAINING_HRPATH)))
+        random.shuffle(indices)
+        curlist = []
+        for c in range(maxepoch):
+
+            #INITIALIZE NEW MATRIX M WITH INPUT IMAGE
+            idx = indices.pop()
+            curlist.append(idx)
+            HRpath = self.TRAINING_HRPATH[idx]
+            LRpath = self.TRAINING_LRPATH[idx]
+            LR = imageio.imread(LRpath)
+            HR = imageio.imread(HRpath)
+            LR,HR = self.getTrainingPatches(LR,HR)
+
+            #CREATE MATRIX M ACCORDING TO CURRENT SR MODELS AND UPDATE IT TO THE INPUT
+            losses = np.zeros(100)
+            self.agent.createM(len(LR),self.SR_COUNT,self.SRmodels,idx)
+            patch_ids = list(range(len(LR)))
+            for step in count():
+                batch_ids = random.sample(patch_ids,self.batch_size)    #TRAIN ON A SINGLE IMAGE
+
+                labels = torch.Tensor(batch_ids).long().to(self.device)
+                lrbatch = LR[labels,:,:,:]
+                hrbatch = HR[labels,:,:,:]
+
+                self.agent.O[idx].zero_grad()
+                sisrloss = torch.zeros((self.batch_size,self.SR_COUNT)).to(self.device)
+                Sloss = [0] * len(self.SRmodels)
+                for i,sisr in enumerate(self.SRmodels):
+                    self.SRoptimizers[i].zero_grad()           #zero our sisr gradients
+                    sr = sisr(lrbatch)
+
+                    #update sisr model based on weighted l1 loss
+                    if self.model == 'ESRGAN':
+                        l1diff = torch.abs(sr - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
+                    elif self.model == 'RCAN':
+                        l1diff = torch.abs(sr - hrbatch).view(len(batch_ids),-1).mean(1) / 255.0           #64x1 vector
+
+                    onehot = torch.zeros(self.SR_COUNT); onehot[i] = 1.0                #1x4 vector as target
+
+                    imgscore = torch.matmul(l1diff.unsqueeze(1),onehot.to(self.device).unsqueeze(0))    #64x4 matrix with column j as l1 diff and rest as zeros
+
+                    weighted_imgscore = self.agent.M[idx](imgscore,labels)     #do element wise matrix multiplication of l1 diff and softmax weights
+                    sisrloss += weighted_imgscore
+                    Sloss[i] = weighted_imgscore.mean()
+
+                rowsum = sisrloss.sum(1).unsqueeze(1)
+
+                one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
+                weight_identity = self.agent.M[idx](one_matrix,labels)
+                val,maxid = weight_identity.max(1) #have max of each row equal to 1
+                maxvals = torch.gather(weight_identity,1,maxid.unsqueeze(1).long())
+
+                loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
+                lossM = rowsum.mean() * 100
+                lossM.backward(retain_graph=True)
+                self.agent.O[idx].step()
+
+                colmean = sisrloss.mean(0).sum()
+                colmean.backward()
+                [opt.step() for opt in self.SRoptimizers]
+
+                #CONSOLE OUTPUT
+                losses[step % 100] = lossM.item()
+                print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, STD100: {:.5f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}'\
+                      .format(c,step,lossM.item(),colmean.item(),losses.std(), Sloss[0].item(),Sloss[1].item(),Sloss[2].item()),end="\n")
+
+                #LOG AND SAVE THE INFORMATION
+                scalar_summaries = {'AgentLoss': lossM, 'SISRLoss': colmean, "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]}
+
+                hist_summaries = {'actions': weight_identity.view(-1), "choices": weight_identity.max(1)[1]}
+                self.logger.scalar_summary(scalar_summaries)
+                self.logger.hist_summary(hist_summaries)
+                if self.logger.step % 200 == 0:
+                    with torch.no_grad():
+                        psnr,ssim,info = self.test.validate(save=False)
+                    [model.train() for model in self.SRmodels]
+                    if self.logger:
+                        self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
+                        image = self.test.getPatchChoice(info)
+                        image = torch.from_numpy(image).float() / 255.0
+                        image = image.permute(2,0,1)
+                        self.logger.image_summary('assignment',image)
+                    self.savemodels()
+                self.logger.incstep()
+
+            #TRAIN ON OLD DATA TO RETAIN IT
+            self.trainSISR(curlist)
+
+    #TRAINING REGIMEN
+    def train(self,maxepoch=20,start=.01,end=0.0001):
+        #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
+        #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
+
+        #requires pytorch 1.1.0+ which is not possible on the server
+        #scheduler = torch.optim.lr_scheduler.CyclicLR(self.agent.optimizer,base_lr=0.0001,max_lr=0.1)
+
         lossfn = torch.nn.CrossEntropyLoss()
         softmin_fn = torch.nn.Softmin(dim=1)
         softmax_fn = torch.nn.Softmax(dim=1)
 
         #START TRAINING
+        indices = list(range(len(self.TRAINING_HRPATH)))
+        random.shuffle(indices)
         for c in range(maxepoch):
-            indices = list(range(len(self.TRAINING_HRPATH)))
-            random.shuffle(indices)
 
             #FOR EACH HIGH RESOLUTION IMAGE
             for n,idx in enumerate(indices):
-                temperature = end + (start - end) * math.exp(-1 * self.logger.step / 400) #exponential decay from start to end
+                #initialize temperature according to CURRENT NUMBER OF STEPS
+                temperature = end + (start - end) * math.exp(-1 * self.logger.step / 400)
+
+                #GET INPUT FROM CURRENT IMAGE
                 HRpath = self.TRAINING_HRPATH[idx]
                 LRpath = self.TRAINING_LRPATH[idx]
                 LR = imageio.imread(LRpath)
                 HR = imageio.imread(HRpath)
                 LR,HR = self.getTrainingPatches(LR,HR)
 
+                # TRAIN WEIGHT MATRIX M
+                self.agent.trainM(self.SRmodels,self.SRoptimizers,LR,HR)
+
                 #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
                 P = []
-                for _ in range(5):
+                for _ in count():
                     batch_ids = random.sample(patch_ids,self.batch_size)    #TRAIN ON A SINGLE IMAGE
 
                     labels = torch.Tensor(batch_ids).long().cuda()
@@ -233,7 +386,11 @@ class SISR():
                         hr_pred = sisr(lrbatch)
 
                         #update sisr model based on weighted l1 loss
-                        l1diff = torch.abs(hr_pred - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
+                        if self.model == 'ESRGAN':
+                            l1diff = torch.abs(hr_pred - hrbatch).view(len(batch_ids),-1).mean(1)           #64x1 vector
+                        elif self.model == 'RCAN':
+                            l1diff = torch.abs(hr_pred - hrbatch).view(len(batch_ids),-1).mean(1) / 255.0
+
                         R[:,j] = l1diff.squeeze(0)
                         Sloss[j] = torch.mean(l1diff)
 
@@ -245,7 +402,6 @@ class SISR():
                         loss1.backward()
                         self.SRoptimizers[j].step()
                         sisr_loss.append(loss1.item())
-
 
                     #OPTIMIZE TO OUTPUT HIGHER PROBABILITY FOR MIN LOSS VALUE
                     self.agent.opt.zero_grad()    #zero our policy gradients
@@ -272,7 +428,7 @@ class SISR():
                 #save the model after 200 images total of 800 images
                 if self.logger.step % 200 == 0:
                     with torch.no_grad():
-                        psnr,ssim = test.validate(save=False)
+                        psnr,ssim = self.test.validate(save=False)
                     [model.train() for model in self.SRmodels]
                     if self.logger: self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
                     self.savemodels()
@@ -286,6 +442,6 @@ if __name__ == '__main__':
     if args.gen_patchinfo:
         sisr.genPatchInfo()
     else:
-        sisr.train()
+        sisr.trainM()
 
 
