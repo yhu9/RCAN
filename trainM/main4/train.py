@@ -208,7 +208,7 @@ class SISR():
                     #patch_ids = patch_ids[:-self.batch_size]
                     batch_ids = random.sample(patch_ids,self.batch_size)    #TRAIN ON A SINGLE IMAGE
 
-                    labels = torch.Tensor(batch_ids).long().cuda()
+                    labels = torch.Tensor(batch_ids).long().to(self.device)
                     lrbatch = LR[labels,:,:,:]
                     hrbatch = HR[labels,:,:,:]
 
