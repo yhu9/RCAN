@@ -225,14 +225,14 @@ class Tester():
 
                 #save info for each file tested
                 filename = os.path.join('runs',vset + os.path.basename(hr_file)+'.mat')
-
-                if quick: break
                 if save:
                     info['LRimg'] = lr
                     info['HRimg'] = hr
                     info['LR_DIR'] = lr_file
                     info['HR_DIR'] = hr_file
                 sio.savemat(filename,info)
+
+                if quick: break
 
                 if save:
                     outpath = './'

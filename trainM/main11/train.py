@@ -246,7 +246,7 @@ class SISR():
 
         #START TRAINING
         indices = list(range(len(self.TRAINING_HRPATH)))
-        random.shuffle(indices)
+        #random.shuffle(indices)
         curlist = []
         for c in range(maxepoch):
 
@@ -292,15 +292,16 @@ class SISR():
                     Sloss[i] = weighted_imgscore.mean()
 
                 rowsum = sisrloss.sum(1).unsqueeze(1)
-
                 one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
                 weight_identity = self.agent.M[idx](one_matrix,labels)
                 val,maxid = weight_identity.max(1) #have max of each row equal to 1
                 maxvals = torch.gather(weight_identity,1,maxid.unsqueeze(1).long())
+                lossM = torch.abs(maxvals - 1).mean()
+                lossM.backward()
 
-                loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
-                lossM = rowsum.mean() * 100
-                lossM.backward(retain_graph=True)
+                #loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
+                #lossM = rowsum.mean() * 100
+                #lossM.backward(retain_graph=True)
                 self.agent.O[idx].step()
 
                 colmean = sisrloss.mean(0).sum()
@@ -421,16 +422,25 @@ class SISR():
                 #LOG THE INFORMATION
                 print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, Temp: {:.6f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}'\
                       .format(c,n,Agent_loss.item(),np.sum(sisr_loss),temperature, Sloss[0],Sloss[1],Sloss[2]),end="\n")
-                self.logger.scalar_summary({'AgentLoss': Agent_loss, 'SISRLoss': torch.tensor(np.mean(sisr_loss)), "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]})
-                if not '0.4' in torch.__version__: self.logger.hist_summary('actions',torch.stack(P).view(-1))
+
+
                 self.logger.incstep()
+                scalar_summaries = {'AgentLoss': Agent_loss, 'SISRLoss':torch.tensor(np.mean(sisr_loss)),"S1":Sloss[0], "S2": Sloss[1], "S3": Sloss[3]}
+                hist_summaries = {'actions': torch.stack(P).view(-1), 'choices': torch.stack(P).max(1)[1]}
 
                 #save the model after 200 images total of 800 images
+                self.logger.scalar_summary(scalar_summaries)
+                self.logger.hist_summary(hist_summaries)
                 if self.logger.step % 200 == 0:
                     with torch.no_grad():
-                        psnr,ssim = self.test.validate(save=False)
+                        psnr,ssim,info = self.test.validate(save=False)
                     [model.train() for model in self.SRmodels]
-                    if self.logger: self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
+                    if self.logger:
+                        self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
+                        image = self.test.getPatchChoice(info)
+                        image = torch.from_numpy(image).float() / 255.0
+                        image = image.permute(2,0,1)
+                        self.logger.image_summary('assignment',image)
                     self.savemodels()
 
 ########################################################################################################
