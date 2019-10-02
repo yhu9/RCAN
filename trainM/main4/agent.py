@@ -122,7 +122,7 @@ class Agent():
             self.EPS_END = args.eps_end
             self.EPS_DECAY = args.eps_decay
             self.TARGET_UPDATE = args.target_update
-            self.memory = ReplayMemory(args.memory_size,device=self.device)
+            #self.memory = ReplayMemory(args.memory_size,device=self.device)
 
         #INITIALIZE THE MODELS
         self.model = Actor(action_space=self.ACTION_SPACE,num_patches=num_patches)
@@ -142,7 +142,6 @@ class Agent():
 #SOME TESTING CODE TO MAKE SURE THIS FILE WORKS
 if __name__ == "__main__":
 
-    device = 'cuda'
     m = Model()
     m.to(device)
     img = torch.rand((3,100,100)).unsqueeze(0).to(device)
