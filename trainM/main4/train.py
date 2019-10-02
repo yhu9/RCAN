@@ -40,7 +40,7 @@ class SISR():
 
         #INITIALIZE VARIABLES
         self.SR_COUNT = args.action_space
-        SRMODEL_PATH = args.srmodel_path
+        self.SRMODEL_PATH = args.srmodel_path
         self.batch_size = args.batch_size
         self.TRAINING_LRPATH = glob.glob(os.path.join(args.training_lrpath,"*"))
         self.TRAINING_HRPATH = glob.glob(os.path.join(args.training_hrpath,"*"))
@@ -83,7 +83,7 @@ class SISR():
     def load(self,args):
         if args.model == 'ESRGAN':
             model = arch.RRDBNet(3,3,64,23,gc=32)
-            model.load_state_dict(torch.load(SRMODEL_PATH),strict=True)
+            model.load_state_dict(torch.load(self.SRMODEL_PATH),strict=True)
         elif args.model == 'random':
             model = arch.RRDBNet(3,3,64,23,gc=32)
             model.apply(self.init_weights)
@@ -202,7 +202,6 @@ class SISR():
                 #WE MUST GO THROUGH EVERY SINGLE PATCH IN RANDOM ORDER WITHOUT REPLACEMENT
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
-                #S_loss = torch.zeros(1,requires_grad=True).float().to(self.device)
                 while len(patch_ids) > 0:
                     sisr_loss = []
                     #batch_ids = patch_ids[-self.batch_size:]
@@ -229,24 +228,29 @@ class SISR():
                         loss1 = torch.mean(weighted_imgscore)
                         loss1.backward(retain_graph=True)
                         self.SRoptimizers[j].step()
-                        sisr_loss.append(loss1.item())
-                        #S_loss += loss1.data[0]
+                        sisr_loss.append(loss1)
 
                     #gather the gradients of the agent policy and constrain them to be within 0-1 with max value as 1
                     one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
                     weight_identity = self.agent.model(one_matrix,m_labels)
                     val,maxid = weight_identity.max(1) #have max of each row equal to 1
-                    loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
+                    #loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
+                    loss3 = torch.mean(torch.abs(torch.gather(weight_identity,1,maxid.unsqueeze(1).long())))
                     loss3.backward()
                     self.agent.opt.step()
 
+                    c1 = (maxid == 0).float().mean()
+                    c2 = (maxid == 1).float().mean()
+                    c3 = (maxid == 2).float().mean()
+                    c4 = (maxid == 3).float().mean()
+
                     #LOG THE INFORMATION
-                    agent_loss = loss3.item() + np.sum(sisr_loss)
-                    print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}'\
-                          .format(c,n,agent_loss,np.mean(sisr_loss)),end="\n")
+                    agent_loss = loss3.item() + sisr_loss[0].item() + sisr_loss[1].item() + sisr_loss[2].item() + sisr_loss[3].item()
+                    print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, S1: {:.4f}, S2: {:.4f} ,S3: {:.4f}, S4: {:.4f}, c1: {:.4f}, c4: {:.4f}, c3: {:.4f}, c4: {:.4f},'\
+                          .format(c,n,agent_loss,loss1.item(),sisr_loss[0].item(),sisr_loss[1].item(),sisr_loss[2].item(), sisr_loss[3].item(), c1.item(),c2.item(),c3.item(),c4.item()),end="\n")
 
                     if self.logger:
-                        self.logger.scalar_summary({'AgentLoss': torch.tensor([agent_loss]), 'SISRLoss': torch.tensor(np.mean(sisr_loss))})
+                        self.logger.scalar_summary({'Loss/AgentLoss': torch.tensor([agent_loss]), 'Loss/SISRLoss': loss1, 'sisr/s1': sisr_loss[0], 'sisr/s2': sisr_loss[1], 'sisr/s3': sisr_loss[2], 'sisr/s4': sisr_loss[3],'choice/c1': c1, 'choice/c2': c2,'choice/c3':c3,'choice/c4':c4})
 
                         #CAN'T QUITE GET THE ACTION VISUALIZATION WORK ON THE SERVER
                         #actions_taken = self.agent.model.M.weight.max(1)[1]
@@ -257,7 +261,7 @@ class SISR():
                     #save the model after 200 images total of 800 images
                     if (self.logger.step+1) % 200 == 0:
                         with torch.no_grad():
-                            psnr,ssim = test.validate(save=False)
+                            psnr,ssim = test.validate(save=False,quick=True)
                         [model.train() for model in self.SRmodels]
                         if self.logger: self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
                         self.savemodels()

@@ -147,7 +147,7 @@ class Tester():
         return psnr,ssim,info
 
     #TEST A MODEL ON ALL DATASETS
-    def validate(self,save=True):
+    def validate(self,save=True,quick=False):
         scores = {}
         [model.eval() for model in self.SRmodels]
         for vset in self.validationsets:
@@ -170,6 +170,7 @@ class Tester():
                 scores[vset].append([psnr,ssim])
 
                 #save info for each file tested
+                if quick: break
                 filename = os.path.join('runs',vset + os.path.basename(hr_file)+'.mat')
                 if save:
                     info['LRimg'] = lr
