@@ -191,6 +191,8 @@ class SISR():
         #START TRAINING
         for c in count():
             indices = list(range(len(self.TRAINING_HRPATH)))
+            #random.shuffle(indices)
+
             #FOR EACH HIGH RESOLUTION IMAGE
             for n,idx in enumerate(indices):
                 HRpath = self.TRAINING_HRPATH[idx]
@@ -235,8 +237,10 @@ class SISR():
                     weight_identity = self.agent.model(one_matrix,m_labels)
                     val,maxid = weight_identity.max(1) #have max of each row equal to 1
                     #loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
-                    loss3 = torch.mean(torch.abs(torch.gather(weight_identity,1,maxid.unsqueeze(1).long())))
-                    loss3.backward()
+                    #loss3 = torch.mean(torch.abs(torch.gather(weight_identity,1,maxid.unsqueeze(1).long())))
+                    #maxvals = torch.gather(weight_identity,1,maxid.unsqueeze(1).long())
+                    #loss3 = torch.abs(maxvals - 1).mean()
+                    #loss3.backward()
                     self.agent.opt.step()
 
                     c1 = (maxid == 0).float().mean()
@@ -245,8 +249,8 @@ class SISR():
                     c4 = (maxid == 3).float().mean()
 
                     #LOG THE INFORMATION
-                    agent_loss = loss3.item() + sisr_loss[0].item() + sisr_loss[1].item() + sisr_loss[2].item() + sisr_loss[3].item()
-                    print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, S1: {:.4f}, S2: {:.4f} ,S3: {:.4f}, S4: {:.4f}, c1: {:.4f}, c4: {:.4f}, c3: {:.4f}, c4: {:.4f},'\
+                    agent_loss = sisr_loss[0].item() + sisr_loss[1].item() + sisr_loss[2].item() + sisr_loss[3].item()
+                    print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, S1: {:.4f}, S2: {:.4f} ,S3: {:.4f}, S4: {:.4f}, c1: {:.4f}, c2: {:.4f}, c3: {:.4f}, c4: {:.4f},'\
                           .format(c,n,agent_loss,loss1.item(),sisr_loss[0].item(),sisr_loss[1].item(),sisr_loss[2].item(), sisr_loss[3].item(), c1.item(),c2.item(),c3.item(),c4.item()),end="\n")
 
                     if self.logger:

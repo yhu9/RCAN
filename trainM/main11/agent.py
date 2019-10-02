@@ -129,7 +129,7 @@ class Agent():
             self.EPS_END = args.eps_end
             self.EPS_DECAY = args.eps_decay
             self.TARGET_UPDATE = args.target_update
-            self.memory = ReplayMemory(args.memory_size,device=self.device)
+            #self.memory = ReplayMemory(args.memory_size,device=self.device)
 
         #INITIALIZE THE MODELS
         self.model = Model(action_space=self.ACTION_SPACE)
@@ -139,7 +139,7 @@ class Agent():
             self.model.load_state_dict(chkpoint['agent'])
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.0001)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.01)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.99)
 
     #FUNCTION TO CREATE NEW WEIGHT MATRIX A

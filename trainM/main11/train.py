@@ -201,7 +201,6 @@ class SISR():
             HR = imageio.imread(HRpath)
             LR,HR = self.getTrainingPatches(LR,HR)
 
-            losses = np.zeros(100)
             patch_ids = list(range(len(LR)))
 
             for j in range(5):
@@ -260,7 +259,6 @@ class SISR():
             LR,HR = self.getTrainingPatches(LR,HR)
 
             #CREATE MATRIX M ACCORDING TO CURRENT SR MODELS AND UPDATE IT TO THE INPUT
-            losses = np.zeros(100)
             self.agent.createM(len(LR),self.SR_COUNT,self.SRmodels,idx)
             patch_ids = list(range(len(LR)))
             for step in count():
@@ -270,10 +268,11 @@ class SISR():
                 lrbatch = LR[labels,:,:,:]
                 hrbatch = HR[labels,:,:,:]
 
+                #UPDATE OUR SISR MODELS
                 self.agent.O[idx].zero_grad()
-                #sisrloss = torch.zeros((self.batch_size,self.SR_COUNT)).to(self.device)
-                sisrloss = 0
                 Sloss = [0] * len(self.SRmodels)
+                sisrloss = 0
+                #sisrloss = torch.zeros((self.batch_size,self.SR_COUNT)).to(self.device)
                 for i,sisr in enumerate(self.SRmodels):
                     self.SRoptimizers[i].zero_grad()           #zero our sisr gradients
                     sr = sisr(lrbatch)
@@ -285,34 +284,36 @@ class SISR():
                         l1diff = torch.abs(sr - hrbatch).view(len(batch_ids),-1).mean(1) / 255.0           #64x1 vector
 
                     onehot = torch.zeros(self.SR_COUNT); onehot[i] = 1.0                #1x4 vector as target
-
                     imgscore = torch.matmul(l1diff.unsqueeze(1),onehot.to(self.device).unsqueeze(0))    #64x4 matrix with column j as l1 diff and rest as zeros
 
                     weighted_imgscore = self.agent.M[idx](imgscore,labels)     #do element wise matrix multiplication of l1 diff and softmax weights
                     sisrloss += weighted_imgscore.sum() / self.batch_size
+                    self.SRoptimizers[i].step()
                     Sloss[i] = weighted_imgscore.sum() / self.batch_size
 
+                sisrloss.backward()
                 one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
                 weight_identity = self.agent.M[idx](one_matrix,labels)
                 val,maxid = weight_identity.max(1) #have max of each row equal to 1
-
-                maxweights = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
-                maxvals = torch.gather(weight_identity,1,maxid.unsqueeze(1).long())
-                lossM = torch.abs(maxvals - 1).mean()
-
-                totalloss = sisrloss + lossM
-                totalloss.backward()
-
-                self.agent.O[idx].step()
+                #maxweights = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
+                #maxvals = torch.gather(weight_identity,1,maxid.unsqueeze(1).long())
+                #lossM = torch.abs(maxvals - 1).mean()
+                #lossM.backward()
+                lossM = sisrloss
                 [opt.step() for opt in self.SRoptimizers]
+                self.agent.O[idx].step()
+
+                c1 = (maxid == 0).float().mean()
+                c2 = (maxid == 1).float().mean()
+                c3 = (maxid == 2).float().mean()
+                #[opt.step() for opt in self.SRoptimizers]
 
                 #CONSOLE OUTPUT
-                losses[step % 100] = lossM.item()
-                print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, STD100: {:.5f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}'\
-                      .format(c,step,totalloss.item(),sisrloss.item(),losses.std(), Sloss[0].item(),Sloss[1].item(),Sloss[2].item()),end="\n")
+                print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}, c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
+                      .format(c,step,lossM.item(),sisrloss.item(), Sloss[0].item(),Sloss[1].item(),Sloss[2].item(), c1.item(), c2.item(), c3.item()),end="\n")
 
                 #LOG AND SAVE THE INFORMATION
-                scalar_summaries = {'AgentLoss': totalloss, 'SISRLoss': sisrloss, "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]}
+                scalar_summaries = {'Loss/AgentLoss': lossM, 'Loss/SISRLoss': sisrloss, "sisr/S1": Sloss[0], "sisr/S2": Sloss[1], "sisr/S3": Sloss[2], "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
 
                 hist_summaries = {'actions': weight_identity.view(-1), "choices": weight_identity.max(1)[1]}
                 self.logger.scalar_summary(scalar_summaries)
