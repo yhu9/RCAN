@@ -271,7 +271,8 @@ class SISR():
                 hrbatch = HR[labels,:,:,:]
 
                 self.agent.O[idx].zero_grad()
-                sisrloss = torch.zeros((self.batch_size,self.SR_COUNT)).to(self.device)
+                #sisrloss = torch.zeros((self.batch_size,self.SR_COUNT)).to(self.device)
+                sisrloss = 0
                 Sloss = [0] * len(self.SRmodels)
                 for i,sisr in enumerate(self.SRmodels):
                     self.SRoptimizers[i].zero_grad()           #zero our sisr gradients
@@ -288,40 +289,37 @@ class SISR():
                     imgscore = torch.matmul(l1diff.unsqueeze(1),onehot.to(self.device).unsqueeze(0))    #64x4 matrix with column j as l1 diff and rest as zeros
 
                     weighted_imgscore = self.agent.M[idx](imgscore,labels)     #do element wise matrix multiplication of l1 diff and softmax weights
-                    sisrloss += weighted_imgscore
-                    Sloss[i] = weighted_imgscore.mean()
+                    sisrloss += weighted_imgscore.sum() / self.batch_size
+                    Sloss[i] = weighted_imgscore.sum() / self.batch_size
 
-                rowsum = sisrloss.sum(1).unsqueeze(1)
                 one_matrix = torch.ones(len(batch_ids),self.SR_COUNT).to(self.device)
                 weight_identity = self.agent.M[idx](one_matrix,labels)
                 val,maxid = weight_identity.max(1) #have max of each row equal to 1
+
+                maxweights = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
                 maxvals = torch.gather(weight_identity,1,maxid.unsqueeze(1).long())
                 lossM = torch.abs(maxvals - 1).mean()
-                lossM.backward()
 
-                #loss3 = torch.mean(torch.abs(weight_identity[:,maxid] - 1))
-                #lossM = rowsum.mean() * 100
-                #lossM.backward(retain_graph=True)
+                totalloss = sisrloss + lossM
+                totalloss.backward()
+
                 self.agent.O[idx].step()
-
-                colmean = sisrloss.mean(0).sum()
-                colmean.backward()
                 [opt.step() for opt in self.SRoptimizers]
 
                 #CONSOLE OUTPUT
                 losses[step % 100] = lossM.item()
                 print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, STD100: {:.5f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}'\
-                      .format(c,step,lossM.item(),colmean.item(),losses.std(), Sloss[0].item(),Sloss[1].item(),Sloss[2].item()),end="\n")
+                      .format(c,step,totalloss.item(),sisrloss.item(),losses.std(), Sloss[0].item(),Sloss[1].item(),Sloss[2].item()),end="\n")
 
                 #LOG AND SAVE THE INFORMATION
-                scalar_summaries = {'AgentLoss': lossM, 'SISRLoss': colmean, "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]}
+                scalar_summaries = {'AgentLoss': totalloss, 'SISRLoss': sisrloss, "S1": Sloss[0], "S2": Sloss[1], "S3": Sloss[2]}
 
                 hist_summaries = {'actions': weight_identity.view(-1), "choices": weight_identity.max(1)[1]}
                 self.logger.scalar_summary(scalar_summaries)
                 self.logger.hist_summary(hist_summaries)
                 if self.logger.step % 200 == 0:
                     with torch.no_grad():
-                        psnr,ssim,info = self.test.validate(save=False)
+                        psnr,ssim,info = self.test.validate(save=False,quick=True)
                     [model.train() for model in self.SRmodels]
                     if self.logger:
                         self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})

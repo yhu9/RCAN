@@ -213,8 +213,8 @@ class SISR():
                     lrbatch = LR[labels,:,:,:]
                     hrbatch = HR[labels,:,:,:]
 
-                    self.agent.opt.zero_grad()    #zero our policy gradients
                     #UPDATE OUR SISR MODELS
+                    self.agent.opt.zero_grad()    #zero our policy gradients
                     for j,sisr in enumerate(self.SRmodels):
                         self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
                         hr_pred = sisr(lrbatch)
