@@ -259,7 +259,7 @@ class SISR():
                         loss_SISR += loss_recon
 
                     #TOTAL LOSS
-                    loss_Choice = (Wloss.sum(dim=1) - Sloss.min(dim=1)[0]).mean()
+                    #loss_Choice = (Wloss.sum(dim=1) - Sloss.min(dim=1)[0]).mean()
                     choice = probs.max(dim=1)[1]
                     total_loss = loss_SISR
                     #total_loss = loss_SISR + loss_Choice
@@ -269,11 +269,14 @@ class SISR():
                     [opt.step() for opt in self.SRoptimizers]
 
                     #CONSOLE OUTPUT
+                    c1 = (choice == 0).float().mean()
+                    c2 = (choice == 1).float().mean()
+                    c3 = (choice == 2).float().mean()
                     S1 = Sloss[:,0].mean()
                     S2 = Sloss[:,1].mean()
                     S3 = Sloss[:,2].mean()
-                    print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}'\
-                            .format(c,step,total_loss.item(),loss_SISR, S1.item(), S2.item(),S3.item()),end="\n")
+                    print('\rEpoch/img: {}/{} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, S1: {:.4f},  S2: {:.4f}, S3: {:.4f}, c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
+                            .format(c,step,total_loss.item(),loss_SISR, S1.item(), S2.item(),S3.item(),c1.item(), c2.item(), c3.item()),end="\n")
 
                     #LOG AND SAVE THE INFORMATION
                     choicemask = np.zeros((self.PATCH_SIZE*4,self.PATCH_SIZE*4,3))
@@ -283,7 +286,7 @@ class SISR():
                     choicemask[mask == 2] = [0,0,255]
                     choicemask = torch.FloatTensor(choicemask) / 255.0
                     choicemask = choicemask.permute(2,0,1)
-                    scalar_summaries = {'AgentLoss': total_loss, 'SISRLoss': loss_SISR, "S1": S1, "S2": S2, "S3": S3}
+                    scalar_summaries = {'Loss/AgentLoss': total_loss, 'Loss/SISRLoss': loss_SISR, "sisr/S1": S1, "sisr/S2": S2, "sisr/S3": S3, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
                     hist_summaries = {'actions': probs[0].view(-1), "choices": choice[0].view(-1)}
                     img_summaries = {'choice/mask': choicemask, 'choice/sr': (hr_pred[0]/255.0).clamp(0,1)}
                     self.logger.scalar_summary(scalar_summaries)

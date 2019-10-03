@@ -70,20 +70,36 @@ class DenseBlock(nn.Module):
 
         #CREATE OUR DENSEBLOCK WITCH ADDS GROWTH FEATURE CHANNELS TO GLOBAL
         self.block1 = torch.nn.Sequential(
-                torch.nn.Conv2d(channel_in,k,3,1,1),
-                torch.nn.ReLU()
+                torch.nn.BatchNorm2d(channel_in),
+                torch.nn.ReLU(),
+                torch.nn.Conv2d(channel_in,4*k,1,1,0),
+                torch.nn.BatchNorm2d(4*k),
+                torch.nn.ReLU(),
+                torch.nn.Conv2d(4*k,k,3,1,1)
                 )
         self.block2 = torch.nn.Sequential(
-                torch.nn.Conv2d(channel_in+1*k,k,3,1,1),
-                torch.nn.ReLU(True)
+                torch.nn.BatchNorm2d(channel_in+1*k),
+                torch.nn.ReLU(),
+                torch.nn.Conv2d(channel_in+1*k,4*k,1,1,0),
+                torch.nn.BatchNorm2d(4*k),
+                torch.nn.ReLU(),
+                torch.nn.Conv2d(4*k,k,3,1,1)
                 )
         self.block3 = torch.nn.Sequential(
-                torch.nn.Conv2d(channel_in+2*k,k,3,1,1),
-                torch.nn.ReLU(True)
+                torch.nn.BatchNorm2d(channel_in+2*k),
+                torch.nn.ReLU(),
+                torch.nn.Conv2d(channel_in+2*k,4*k,1,1,0),
+                torch.nn.BatchNorm2d(4*k),
+                torch.nn.ReLU(),
+                torch.nn.Conv2d(4*k,k,3,1,1)
                 )
         self.block4 = torch.nn.Sequential(
-                torch.nn.Conv2d(channel_in+3*k,k,3,1,1),
-                torch.nn.ReLU(True)
+                torch.nn.BatchNorm2d(channel_in+3*k),
+                torch.nn.ReLU(),
+                torch.nn.Conv2d(channel_in+3*k,4*k,1,1,0),
+                torch.nn.BatchNorm2d(4*k),
+                torch.nn.ReLU(),
+                torch.nn.Conv2d(4*k,k,3,1,1)
                 )
         self.block1.apply(init_weights)
         self.block2.apply(init_weights)
@@ -114,8 +130,7 @@ class Model(nn.Module):
 
         #INITIAL CONV LAYER AS FOUND IN DENSENET
         self.first = torch.nn.Sequential(
-                torch.nn.Conv2d(3,32,3,1,1),
-                torch.nn.PReLU()
+                torch.nn.Conv2d(3,32,3,1,1)
                 )
 
         #CREATE DENSE BLOCKS WICH ADD 8*4 ADDITIONAL FEATURE CHANNELS
@@ -136,6 +151,16 @@ class Model(nn.Module):
                 torch.nn.Conv2d(32*5 // 16,3,3,1,1),
                 torch.nn.Softmax(dim=1)
                 )
+        '''
+        self.final = torch.nn.Sequential(
+                torch.nn.ConvTranspose2d(32*5,16*5,4,2,1),
+                torch.nn.PReLU(),
+                torch.nn.ConvTranspose2d(16*5,16*5,4,2,1),
+                torch.nn.PReLU(),
+                torch.nn.Conv2d(16*5,3,3,1,1),
+                torch.nn.Softmax(dim=1)
+                )
+        '''
 
         self.final.apply(init_weights)
 
@@ -175,7 +200,7 @@ class Agent():
             self.model.load_state_dict(chkpoint['agent'])
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.01)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.0001)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.99)
 
 #######################################################################################################
