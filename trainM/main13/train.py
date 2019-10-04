@@ -38,11 +38,6 @@ torch.manual_seed(args.seed)
 class SISR():
     def __init__(self, args=args):
 
-        #RANDOM MODEL INITIALIZATION FUNCTION
-        def init_weights(m):
-            if isinstance(m,torch.nn.Linear) or isinstance(m,torch.nn.Conv2d):
-                torch.nn.init.xavier_uniform_(m.weight.data)
-
         #INITIALIZE VARIABLES
         self.SR_COUNT = args.action_space
         SRMODEL_PATH = args.srmodel_path
