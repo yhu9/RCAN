@@ -10,7 +10,7 @@ parser.add_argument('--template', default='.',
 
 #MASA'S TRAINING SPECIFICATIONS
 parser.add_argument("--srmodel_path",default="../model/RCAN_BIX4.pt", help='Path to the SR model')
-parser.add_argument("--batch_size",default=16, help='Batch Size')
+parser.add_argument("--batch_size",default=16, type=int,help='Batch Size')
 parser.add_argument("--gamma",default=.9, help='Gamma Value for RL algorithm')
 parser.add_argument("--eps_start",default=.90, help='Epsilon decay start value')
 parser.add_argument("--eps_end",default=0.10, help='Epsilon decay end value')
@@ -27,6 +27,7 @@ parser.add_argument("--patchsize",default=32,type=int,help="patch size to super 
 parser.add_argument("--loadagent",default=False, action='store_const',const=True)
 parser.add_argument("--learning_rate",default=0.01,help="Learning rate of Super Resolution Models")
 parser.add_argument("--upsize", default=4,help="Upsampling size of the network")
+parser.add_argument("--random",default=False,action='store_const',const=True,help='Set Super resolution models to random state')
 parser.add_argument("--gen_patchinfo",default=False,action='store_const',const=True)
 parser.add_argument("--device",default='cuda:0',help='set device to train on')
 parser.add_argument("--finetune",default=True,action='store_const',const=False)

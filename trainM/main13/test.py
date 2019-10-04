@@ -197,7 +197,6 @@ class Tester():
                 hr = imageio.imread(hr_file)
                 lr = imageio.imread(lr_file)
                 if self.model == 'ESRGAN':
-                    hr = hr / 255.0
                     lr = lr / 255.0
 
                 #EVALUATE AND GATHER STATISTICS

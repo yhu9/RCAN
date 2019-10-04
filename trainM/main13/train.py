@@ -34,6 +34,12 @@ torch.manual_seed(args.seed)
 ####################################################################################################
 ####################################################################################################
 
+#RANDOM MODEL INITIALIZATION FUNCTION
+def init_weights(m):
+    if isinstance(m,torch.nn.Linear) or isinstance(m,torch.nn.Conv2d):
+        torch.nn.init.xavier_uniform_(m.weight.data)
+        m.bias.data.fill_(0.01)
+
 #OUR END-TO-END MODEL TRAINER
 class SISR():
     def __init__(self, args=args):
@@ -64,6 +70,7 @@ class SISR():
 
     #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
+
         if args.model_dir != "":
             loadedparams = torch.load(args.model_dir,map_location=self.device)
             self.agent = agent.Agent(args,chkpoint=loadedparams)
@@ -77,11 +84,11 @@ class SISR():
             #CREATE THE ARCH
             if args.model == 'ESRGAN':
                 model = arch.RRDBNet(3,3,64,23,gc=32)
-            elif args.model == 'RCAN':
+            elif args.model == 'RCAN' or args.model == 'random':
                 torch.manual_seed(args.seed)
                 checkpoint = utility.checkpoint(args)
                 if checkpoint.ok:
-                    module = import_module('model.'+args.model.lower())
+                    module = import_module('model.rcan')
                     model = module.make_model(args).to(self.device)
                     kwargs = {}
                 else: print('error loading RCAN model. QUITING'); quit();
@@ -90,6 +97,8 @@ class SISR():
             if args.model_dir != "":
                 model.load_state_dict(loadedparams["sisr"+str(i)])
                 print('continuing training')
+            elif args.random:
+                model.apply(init_weights)
             elif args.model == 'ESRGAN':
                 model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
             elif args.model == 'RCAN':
@@ -248,7 +257,10 @@ class SISR():
                     #LOG AND SAVE THE INFORMATION
                     scalar_summaries = {'Loss/AgentLoss': total_loss, 'Loss/SISRLoss': loss_SISR, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
                     hist_summaries = {'actions': probs[0].view(-1), "choices": choice[0].view(-1)}
-                    img_summaries = {'sr/mask': probs[0], 'sr/sr': (hr_pred[0]/255.0).clamp(0,1), 'sr/hr': (hrbatch[0]/255.0).clamp(0,1)}
+                    if self.model == 'RCAN':
+                        img_summaries = {'sr/mask': probs[0], 'sr/sr': (SR_result[0]/255.0).clamp(0,1), 'sr/hr': (hrbatch[0]/255.0).clamp(0,1)}
+                    else:
+                        img_summaries = {'sr/mask': probs[0], 'sr/sr': SR_result[0].clamp(0,1), 'sr/hr': hrbatch[0].clamp(0,1)}
                     self.logger.scalar_summary(scalar_summaries)
                     self.logger.hist_summary(hist_summaries)
                     self.logger.image_summary(img_summaries)
@@ -262,10 +274,11 @@ class SISR():
                         [model.train() for model in self.SRmodels]
                         if self.logger:
                             self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
-                            #masked_sr = self.test.getPatchChoice(info)
                             masked_sr = torch.from_numpy(info['assignment']).float().permute(2,0,1)
-                            srimg = (torch.from_numpy(info['SRimg']).float() / 255.0).permute(2,0,1)
-                            hrimg = (torch.from_numpy(info['HRimg']).float() / 255.0).permute(2,0,1)
+                            srimg = (torch.from_numpy(info['SRimg']).float()).permute(2,0,1)
+                            hrimg = (torch.from_numpy(info['HRimg']).float()).permute(2,0,1)
+                            hrimg = hrimg / 255.0
+                            srimg = srimg / 255.0
                             self.logger.image_summary({'Testing/Test Assignment':masked_sr, 'Testing/SR':srimg, 'Testing/HR': hrimg})
                         self.savemodels()
                     self.logger.incstep()
