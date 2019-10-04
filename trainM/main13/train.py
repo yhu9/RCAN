@@ -103,7 +103,7 @@ class SISR():
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
             self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
-            self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],10000,gamma=0.1))
+            self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],500,gamma=0.1))
 
         #INCREMENT SCHEDULES TO THE CORRECT LOCATION
         for i in range(args.step):
@@ -239,6 +239,7 @@ class SISR():
 
                     self.agent.opt.step()
                     [opt.step() for opt in self.SRoptimizers]
+                    [sched.step() for sched in self.
 
                     #CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
                     choice = probs.max(dim=1)[1]
@@ -257,7 +258,7 @@ class SISR():
                     self.logger.image_summary(img_summaries)
                     if self.logger.step % 100 == 0:
                         with torch.no_grad():
-                            if not self.logger.step % 1000 == 0:
+                            if not self.logger.step % 500 == 0:
                                 psnr,ssim,info = self.test.validate(save=False,quick=True)
                             else:
                                 psnr,ssim,info = self.test.validate(save=False,quick=False)
