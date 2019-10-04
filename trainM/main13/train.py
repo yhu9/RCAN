@@ -233,13 +233,14 @@ class SISR():
                         l1diff = torch.mean(torch.abs(SR_result - hrbatch))
                     elif self.model == 'RCAN':
                         l1diff = torch.mean(torch.abs(hr_pred - hrbatch) / 255.0)
-
                     total_loss = l1diff
                     total_loss.backward()
 
+                    #OPTIMIZE AND MOVE THE LEARNING RATE ACCORDING TO SCHEDULER
                     self.agent.opt.step()
                     [opt.step() for opt in self.SRoptimizers]
-                    [sched.step() for sched in self.
+                    [sched.step() for sched in self.schedulers]
+                    self.agent.scheduler.step()
 
                     #CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
                     choice = probs.max(dim=1)[1]
