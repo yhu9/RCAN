@@ -50,7 +50,6 @@ class ReplayMemory(object):
         s = torch.stack(s).to(self.device)
         a = torch.stack(a).to(self.device)
         r = torch.stack(r).to(self.device)
-
         return s,a,r
 
     def __len__(self):
@@ -123,57 +122,48 @@ class Model(nn.Module):
     def __init__(self,k):
         super(Model,self).__init__()
 
-        #RANDOM MODEL INITIALIZATION FUNCTION
-        def init_weights(m):
-            if isinstance(m,nn.Linear) or isinstance(m,nn.Conv2d):
-                torch.nn.init.xavier_normal_(m.weight.data)
+        #ZERO OUT THE WEIGHTS
+        def zeroout(m):
+            with torch.no_grad():
+                if type(m) == torch.nn.Conv2d:
+                    m.weight.data *= 0.0
 
-        #INITIAL CONV LAYER AS FOUND IN DENSENET
-        self.first = torch.nn.Sequential(
-                torch.nn.Conv2d(3,32,3,1,1)
-                )
+        #self.SegNet = models.segmentation.fcn_resnet50(pretrained=False,num_classes=48)
+        #self.SegNet = models.segmentation.deeplabv3_resnet101(pretrained=False,num_classes=160)
 
-        #CREATE DENSE BLOCKS WICH ADD 8*4 ADDITIONAL FEATURE CHANNELS
+        self.first = torch.nn.Conv2d(3,32,3,1,1)
+
         self.db1 = DenseBlock(32,8)
         self.db2 = DenseBlock(32*2,8)
         self.db3 = DenseBlock(32*3,8)
         self.db4 = DenseBlock(32*4,8)
-        [b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
-
-        #FINAL LAYER
-        '''
-        self.final = torch.nn.Sequential(
-                torch.nn.Conv2d(32*5,32*5,3,1,1),
-                torch.nn.PixelShuffle(2),
-                torch.nn.PReLU(),
-                torch.nn.Conv2d(32*5 // 4,32*5 // 4,3,1,1),
-                torch.nn.PixelShuffle(2),
-                torch.nn.PReLU(),
-                torch.nn.Conv2d(32*5 // 16,3,3,1,1),
-                torch.nn.Softmax(dim=1)
-                )
-        '''
+        #[b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
 
         self.final = torch.nn.Sequential(
-                torch.nn.ConvTranspose2d(32*5,16*5,4,2,1),
+                torch.nn.Upsample(scale_factor=4),
+                torch.nn.Conv2d(160,64,3,1,1),
+                torch.nn.BatchNorm2d(64),
                 torch.nn.PReLU(),
-                torch.nn.ConvTranspose2d(16*5,16*5,4,2,1),
+                torch.nn.Conv2d(64,32,3,1,1),
+                torch.nn.BatchNorm2d(32),
                 torch.nn.PReLU(),
-                torch.nn.Conv2d(16*5,3,3,1,1),
+                torch.nn.Conv2d(32,k,3,1,1),
                 torch.nn.Softmax(dim=1)
                 )
 
-        self.final.apply(init_weights)
+        self.softmax = torch.nn.Softmax(dim=1)
 
     #FORWARD FUNCTION
     def forward(self,x):
+        #x = self.SegNet(x)['out']
         x = self.first(x)
         x = self.db1(x)
         x = self.db2(x)
         x = self.db3(x)
         x = self.db4(x)
-        out = self.final(x)
-        return out
+        x = self.final(x)
+        x = self.softmax(x)
+        return x
 
 #######################################################################################################
 
@@ -181,6 +171,9 @@ class Model(nn.Module):
 class Agent():
     def __init__(self,args,train=True,chkpoint=None):
 
+        def init_weights(m):
+            if isinstance(m,nn.Linear) or isinstance(m,nn.Conv2d):
+                torch.nn.init.xavier_uniform_(m.weight.data)
         #INITIALIZE HYPER PARAMS
         self.device = args.device
         self.ACTION_SPACE = args.action_space
@@ -199,9 +192,11 @@ class Agent():
         self.model.to(self.device)
         if chkpoint:
             self.model.load_state_dict(chkpoint['agent'])
+        else:
+            self.model.apply(init_weights)
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.001)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.001,weight_decay=1e-4)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.5)
 
 #######################################################################################################
