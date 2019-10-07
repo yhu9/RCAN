@@ -71,34 +71,42 @@ class DenseBlock(nn.Module):
         self.block1 = torch.nn.Sequential(
                 torch.nn.BatchNorm2d(channel_in),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(channel_in,4*k,1,1,0),
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(channel_in,4*k,3,1,0),
                 torch.nn.BatchNorm2d(4*k),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(4*k,k,3,1,1)
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(4*k,k,3,1,0)
                 )
         self.block2 = torch.nn.Sequential(
-                torch.nn.BatchNorm2d(channel_in+1*k),
+                torch.nn.BatchNorm2d(channel_in + 1*k),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(channel_in+1*k,4*k,1,1,0),
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(channel_in + 1*k,4*k,3,1,0),
                 torch.nn.BatchNorm2d(4*k),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(4*k,k,3,1,1)
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(4*k,k,3,1,0)
                 )
         self.block3 = torch.nn.Sequential(
-                torch.nn.BatchNorm2d(channel_in+2*k),
+                torch.nn.BatchNorm2d(channel_in + 2*k),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(channel_in+2*k,4*k,1,1,0),
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(channel_in + 2*k,4*k,3,1,0),
                 torch.nn.BatchNorm2d(4*k),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(4*k,k,3,1,1)
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(4*k,k,3,1,0)
                 )
         self.block4 = torch.nn.Sequential(
-                torch.nn.BatchNorm2d(channel_in+3*k),
+                torch.nn.BatchNorm2d(channel_in + 3*k),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(channel_in+3*k,4*k,1,1,0),
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(channel_in + 3*k,4*k,3,1,0),
                 torch.nn.BatchNorm2d(4*k),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(4*k,k,3,1,1)
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(4*k,k,3,1,0)
                 )
         self.block1.apply(init_weights)
         self.block2.apply(init_weights)
@@ -140,14 +148,18 @@ class Model(nn.Module):
         #[b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
 
         self.final = torch.nn.Sequential(
-                torch.nn.Upsample(scale_factor=4),
-                torch.nn.Conv2d(160,64,3,1,1),
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(160,64,3,1),
+                torch.nn.ConvTranspose2d(64,64,2,2),
                 torch.nn.BatchNorm2d(64),
-                torch.nn.PReLU(),
-                torch.nn.Conv2d(64,32,3,1,1),
+                torch.nn.ReLU(),
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(64,32,3,1),
+                torch.nn.ConvTranspose2d(32,32,2,2),
                 torch.nn.BatchNorm2d(32),
-                torch.nn.PReLU(),
-                torch.nn.Conv2d(32,k,3,1,1),
+                torch.nn.ReLU(),
+                torch.nn.ReflectionPad2d(1),
+                torch.nn.Conv2d(32,k,3,1),
                 torch.nn.Softmax(dim=1)
                 )
 
@@ -196,7 +208,7 @@ class Agent():
             self.model.apply(init_weights)
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=0.001,weight_decay=1e-4)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-4)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.5)
 
 #######################################################################################################

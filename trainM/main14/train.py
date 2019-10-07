@@ -238,7 +238,7 @@ class SISR():
                     self.agent.opt.step()
                     [opt.step() for opt in self.SRoptimizers]
                     [sched.step() for sched in self.schedulers]
-                    #self.agent.scheduler.step()
+                    self.agent.scheduler.step()
 
                     #CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
                     choice = probs.max(dim=1)[1]
