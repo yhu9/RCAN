@@ -235,10 +235,11 @@ class SISR():
                     total_loss.backward()
 
                     #OPTIMIZE AND MOVE THE LEARNING RATE ACCORDING TO SCHEDULER
-                    self.agent.opt.step()
                     [opt.step() for opt in self.SRoptimizers]
-                    [sched.step() for sched in self.schedulers]
-                    self.agent.scheduler.step()
+                    #[sched.step() for sched in self.schedulers]
+                    if self.logger.step % 100 == 0:
+                        self.agent.opt.step()
+                        self.agent.scheduler.step()
 
                     #CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
                     choice = probs.max(dim=1)[1]

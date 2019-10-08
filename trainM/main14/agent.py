@@ -148,6 +148,19 @@ class Model(nn.Module):
         #[b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
 
         self.final = torch.nn.Sequential(
+                torch.nn.Upsample(scale_factor=2),
+                torch.nn.Conv2d(160,64,3,1,1),
+                torch.nn.BatchNorm2d(64),
+                torch.nn.PReLU(),
+                torch.nn.Upsample(scale_factor=2),
+                torch.nn.Conv2d(64,32,3,1,1),
+                torch.nn.BatchNorm2d(32),
+                torch.nn.PReLU(),
+                torch.nn.Conv2d(32,k,3,1,1),
+                torch.nn.Softmax(dim=1)
+                )
+        '''
+        self.final = torch.nn.Sequential(
                 torch.nn.ReflectionPad2d(1),
                 torch.nn.Conv2d(160,64,3,1),
                 torch.nn.ConvTranspose2d(64,64,2,2),
@@ -162,6 +175,7 @@ class Model(nn.Module):
                 torch.nn.Conv2d(32,k,3,1),
                 torch.nn.Softmax(dim=1)
                 )
+        '''
 
         self.softmax = torch.nn.Softmax(dim=1)
 
