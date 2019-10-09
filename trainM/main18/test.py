@@ -162,8 +162,6 @@ class Tester():
             SR_result += weighted_pred
 
         #FORMAT THE OUTPUT
-        if self.model == 'ESRGAN':
-            SR_result = SR_result * 255.0
         SR_result = SR_result.clamp(0,255)
         SR_result = SR_result.squeeze(0).permute(1,2,0).data.cpu().numpy()
         choices = choices.squeeze(0).permute(1,2,0).data.cpu().numpy()

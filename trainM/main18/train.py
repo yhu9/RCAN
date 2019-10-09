@@ -114,12 +114,12 @@ class SISR():
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
 
-            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4,weight_decay=1e-4))
+            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
             #self.SRoptimizers.append(torch.optim.SGD(model.parameters(),lr=1e-7))
             #print(self.SRoptimizers[-1].defaults)
             #quit()
             #scheduler = torch.optim.lr_scheduler.CyclicLR(self.SRoptimizers[-1],base_lr=1e-7,max_lr=1e-2,step_size_up=100)
-            scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],100,gamma=1.0)
+            scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],200,gamma=1.0)
 
             self.schedulers.append(scheduler)
 
@@ -268,9 +268,8 @@ class SISR():
                     [opt.step() for opt in self.SRoptimizers]
                     if self.logger.step % 10 == 0: self.agent.opt.step()
 
-
                     [sched.step() for sched in self.schedulers]
-                    self.agent.scheduler.step()
+                    #self.agent.scheduler.step()
 
                     lr = self.SRoptimizers[-1].param_groups[0]['lr']
 
