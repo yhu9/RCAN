@@ -251,12 +251,12 @@ class SISR():
                     for j,sisr in enumerate(self.SRmodels):
                         self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
                         hr_pred = sisr(lrbatch)
-                        #weighted_pred = hr_pred * probs[:,j].unsqueeze(1)
-                        SR_result += hr_pred
+                        weighted_pred = hr_pred * probs[:,j].unsqueeze(1)
+                        SR_result += weighted_pred
                     self.agent.opt.zero_grad()
 
                     #CALCULATE LOSS
-                    l1diff = lossfn(hr_pred,hrbatch)
+                    l1diff = lossfn(SR_result,hrbatch)
                     #l1diff = torch.mean(torch.abs(SR_result - hrbatch))
                     total_loss = l1diff
                     total_loss.backward()
@@ -265,8 +265,8 @@ class SISR():
                     [opt.step() for opt in self.SRoptimizers]
                     [sched.step() for sched in self.schedulers]
                     lr = self.SRoptimizers[-1].param_groups[0]['lr']
-                    #self.agent.opt.step()
-                    #self.agent.scheduler.step()
+                    self.agent.opt.step()
+                    self.agent.scheduler.step()
 
                     #CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
                     choice = probs.max(dim=1)[1]

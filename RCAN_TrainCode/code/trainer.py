@@ -130,7 +130,7 @@ class Trainer():
         def _prepare(tensor):
             if self.args.precision == 'half': tensor = tensor.half()
             return tensor.to(device)
-           
+
         return [_prepare(_l) for _l in l]
 
     def terminate(self):
