@@ -172,6 +172,8 @@ class Tester():
 
     #GATHER STATISTICS FROM SR RESULT AND GROUND TRUTH
     def getstats(self,sr,hr):
+        sr = sr * 255
+        hr = hr * 255
         psnr,ssim = util.calc_metrics(hr,sr,crop_border=self.upsize)
         return psnr,ssim
 
@@ -198,8 +200,8 @@ class Tester():
             for hr_file,lr_file in zip(HR_files,LR_files):
                 hr = imageio.imread(hr_file)
                 lr = imageio.imread(lr_file)
-                if self.model == 'ESRGAN':
-                    lr = lr / 255.0
+                lr = lr / 255.0
+                hr = hr / 255.0
 
                 #EVALUATE AND GATHER STATISTICS
                 sr,choices = self.evaluate(lr)

@@ -210,6 +210,10 @@ class SISR():
         unfold_LR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE,stride=self.PATCH_SIZE,dilation=1)
         unfold_HR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE*4,stride=self.PATCH_SIZE*4,dilation=1)
 
+        #QUICK CHECK ON EVERYTHING
+        with torch.no_grad():
+            psnr,ssim,info = self.test.validate(save=False,quick=False)
+
         #START TRAINING
         indices = list(range(len(self.TRAINING_HRPATH)))
         lossfn = torch.nn.L1Loss()
@@ -245,7 +249,6 @@ class SISR():
 
                     #GET SISR RESULTS FROM EACH MODEL
                     SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
-                    Wloss = torch.zeros(self.batch_size,self.SR_COUNT,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
                     loss_SISR = 0
                     probs = self.agent.model(lrbatch)
                     for j,sisr in enumerate(self.SRmodels):
@@ -263,10 +266,13 @@ class SISR():
 
                     #OPTIMIZE AND MOVE THE LEARNING RATE ACCORDING TO SCHEDULER
                     [opt.step() for opt in self.SRoptimizers]
+                    if self.logger.step % 10 == 0: self.agent.opt.step()
+
+
                     [sched.step() for sched in self.schedulers]
-                    lr = self.SRoptimizers[-1].param_groups[0]['lr']
-                    self.agent.opt.step()
                     self.agent.scheduler.step()
+
+                    lr = self.SRoptimizers[-1].param_groups[0]['lr']
 
                     #CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
                     choice = probs.max(dim=1)[1]
@@ -285,7 +291,7 @@ class SISR():
                     self.logger.scalar_summary(scalar_summaries)
                     self.logger.hist_summary(hist_summaries)
                     self.logger.image_summary(img_summaries)
-                    if self.logger.step % 100 == 0:
+                    if (self.logger.step + 1) % 100 == 0:
                         with torch.no_grad():
                             psnr,ssim,info = self.test.validate(save=False,quick=False)
                         self.agent.model.train()
@@ -295,8 +301,6 @@ class SISR():
                             masked_sr = torch.from_numpy(info['assignment']).float().permute(2,0,1)
                             srimg = (torch.from_numpy(info['SRimg']).float()).permute(2,0,1)
                             hrimg = (torch.from_numpy(info['HRimg']).float()).permute(2,0,1)
-                            hrimg = hrimg / 255.0
-                            srimg = srimg / 255.0
                             self.logger.image_summary({'Testing/Test Assignment':masked_sr, 'Testing/SR':srimg, 'Testing/HR': hrimg})
                         self.savemodels()
                     self.logger.incstep()
