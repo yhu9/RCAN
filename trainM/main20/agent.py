@@ -139,7 +139,10 @@ class Model(nn.Module):
         #self.SegNet = models.segmentation.fcn_resnet50(pretrained=False,num_classes=48)
         #self.SegNet = models.segmentation.deeplabv3_resnet101(pretrained=False,num_classes=160)
 
-        self.first = torch.nn.Conv2d(3,32,3,1,1)
+        self.first = torch.nn.Sequential(
+                torch.nn.BatchNorm2d(3),
+                torch.nn.Conv2d(3,32,3,1,1)
+                )
 
         self.db1 = DenseBlock(32,8)
         self.db2 = DenseBlock(32*2,8)
@@ -222,7 +225,7 @@ class Agent():
             self.model.apply(init_weights)
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-4)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-5)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.5)
 
 #######################################################################################################

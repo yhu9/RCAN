@@ -249,9 +249,8 @@ class SISR():
                     maxval,idx = probs.max(dim=1)
                     for j,sisr in enumerate(self.SRmodels):
                         self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
-                        map = idx == j
                         hr_pred = sisr(lrbatch)
-                        weighted_pred = hr_pred * (maxval.unsqueeze(1) * map.unsqueeze(1).float())
+                        weighted_pred = hr_pred * (probs[:,j].unsqueeze(1).float())
                         SR_result += weighted_pred
 
                     self.agent.opt.zero_grad()
@@ -259,7 +258,7 @@ class SISR():
                     #CALCULATE LOSS
                     l1diff = lossfn(SR_result,hrbatch)
                     #l1diff = torch.mean(torch.abs(SR_result - hrbatch))
-                    total_loss = l1diff
+                    total_loss = l1diff + torch.mean(1 - maxval) * 0.1
                     total_loss.backward()
 
                     #OPTIMIZE AND MOVE THE LEARNING RATE ACCORDING TO SCHEDULER
