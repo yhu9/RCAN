@@ -253,6 +253,7 @@ class SISR():
                         hr_pred = sisr(lrbatch)
                         weighted_pred = hr_pred * (maxval.unsqueeze(1) * map.unsqueeze(1).float())
                         SR_result += weighted_pred
+
                     self.agent.opt.zero_grad()
 
                     #CALCULATE LOSS
