@@ -234,7 +234,6 @@ class SISR():
 
                     #CALCULATE LOSS
                     l1diff = torch.mean(torch.abs(SR_result - hrbatch))
-
                     total_loss = l1diff
                     total_loss.backward()
 

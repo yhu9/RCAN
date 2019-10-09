@@ -10,7 +10,7 @@ parser.add_argument('--template', default='.',
 
 #MASA'S TRAINING SPECIFICATIONS
 parser.add_argument("--srmodel_path",default="../model/RCAN_BIX4.pt", help='Path to the SR model')
-parser.add_argument("--batch_size",default=3, type=int,help='Batch Size')
+parser.add_argument("--batch_size",default=2, type=int,help='Batch Size')
 parser.add_argument("--gamma",default=.9, help='Gamma Value for RL algorithm')
 parser.add_argument("--eps_start",default=.90, help='Epsilon decay start value')
 parser.add_argument("--eps_end",default=0.10, help='Epsilon decay end value')
@@ -32,7 +32,7 @@ parser.add_argument("--gen_patchinfo",default=False,action='store_const',const=T
 parser.add_argument("--device",default='cuda:0',help='set device to train on')
 parser.add_argument("--finetune",default=True,action='store_const',const=False)
 parser.add_argument("--name", required=True, help='Name to give this training session')
-parser.add_argument("--ESRGAN_PATH",default="../model/RRDB_PSNR_ESRGAN_x4.pth",help='path to ESRGAN')
+parser.add_argument("--ESRGAN_PATH",default="../model/RRDB_PSNR_x4.pth",help='path to ESRGAN')
 parser.add_argument("--step",default=0,type=int,help='determine where to start training at')
 
 #MASA'S TESTING SPECIFICATIONS

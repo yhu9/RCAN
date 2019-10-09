@@ -190,6 +190,7 @@ class SISR():
 
         #START TRAINING
         indices = list(range(len(self.TRAINING_HRPATH)))
+        lossfn = torch.nn.L1Loss()
         #random.shuffle(indices)
         for c in range(maxepoch):
 
@@ -222,19 +223,20 @@ class SISR():
 
                     #GET SISR RESULTS FROM EACH MODEL
                     SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
+                    SR_result.requires_grad = True
                     Wloss = torch.zeros(self.batch_size,self.SR_COUNT,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
                     loss_SISR = 0
                     probs = self.agent.model(lrbatch)
                     for j,sisr in enumerate(self.SRmodels):
                         self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
                         hr_pred = sisr(lrbatch)
-                        weighted_pred = hr_pred * probs[:,j].unsqueeze(1)
-                        SR_result += weighted_pred
+                        #weighted_pred = hr_pred * probs[:,j].unsqueeze(1)
+                        #SR_result += weighted_pred
                     self.agent.opt.zero_grad()
 
                     #CALCULATE LOSS
-                    l1diff = torch.mean(torch.abs(SR_result - hrbatch))
-
+                    l1diff = lossfn(hr_pred,hrbatch)
+                    #l1diff = torch.mean(torch.abs(SR_result - hrbatch))
                     total_loss = l1diff
                     total_loss.backward()
 
