@@ -258,7 +258,7 @@ class SISR():
                     #CALCULATE LOSS
                     l1diff = lossfn(SR_result,hrbatch)
                     #l1diff = torch.mean(torch.abs(SR_result - hrbatch))
-                    total_loss = l1diff + torch.mean(1 - maxval)
+                    total_loss = l1diff + torch.mean(1 - maxval) * 0.1
                     total_loss.backward()
 
                     #OPTIMIZE AND MOVE THE LEARNING RATE ACCORDING TO SCHEDULER
