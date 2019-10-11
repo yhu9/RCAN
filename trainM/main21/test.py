@@ -30,7 +30,7 @@ import utility
 class Tester():
     def __init__(self,agent=None,SRmodels=None,args=args,testset=['Set5','Set14','B100']):
         self.device = args.device
-        if args.evaluate or args.viewM or args.testbasic or args.baseline:
+        if args.evaluate or args.ensemble or args.viewM or args.testbasic or args.baseline:
             if args.model_dir == "" and not args.baseline: print("TRAINED AGENT AND SISR MODELS REQUIRED TO EVALUATE OR VIEW ALLOCATION"); quit();
             else:
                 #LOADS THE TRAINED MODELS AND AGENT
@@ -147,7 +147,6 @@ class Tester():
 
     #EVALUATE THE INPUT AND GET SR RESULT
     def evaluate(self,lr):
-
         #FORMAT THE INPUT
         h,w,d = lr.shape
         lr = torch.FloatTensor(lr).to(self.device)
@@ -225,7 +224,94 @@ class Tester():
                         outpath = os.path.join(outpath,path)
                         if not os.path.exists(outpath): os.mkdir(outpath)
                     outpath = os.path.splitext(os.path.join(outpath, os.path.basename(hr_file)))[0] +'_' + self.name + '_x' + str(self.upsize) + '.png'
-                    imageio.imwrite(outpath,info['SRimg'])
+                    imageio.imwrite(outpath,info['SRimg'].astype(np.uint8))
+
+            mu_psnr = np.mean(np.array(scores[vset])[:,0])
+            mu_ssim = np.mean(np.array(scores[vset])[:,1])
+            print(vset + ' scores',mu_psnr,mu_ssim)
+
+        return mu_psnr,mu_ssim,info
+
+    #TEST A MODEL ON ALL DATASETS
+    def validate_ensemble(self,save=True,quick=False):
+        scores = {}
+        [model.eval() for model in self.SRmodels]
+        self.agent.model.eval()
+
+        for vset in self.validationsets:
+            scores[vset] = []
+            HR_dir = os.path.join(self.hr_rootdir,vset)
+            LR_dir = os.path.join(os.path.join(self.lr_rootdir,vset),self.resfolder)
+
+            #SORT THE HR AND LR FILES IN THE SAME ORDER
+            HR_files = [os.path.join(HR_dir, f) for f in os.listdir(HR_dir)]
+            LR_files = [os.path.join(LR_dir, f) for f in os.listdir(LR_dir)]
+            HR_files.sort()
+            LR_files.sort()
+            HR_files.reverse()
+            LR_files.reverse()
+
+            #APPLY SISR ON EACH LR IMAGE AND GATHER RESULTS
+            for hr_file,lr_file in zip(HR_files,LR_files):
+                hr = imageio.imread(hr_file)
+                lr = imageio.imread(lr_file)
+
+                sr1,c1 = self.evaluate(lr)
+                sr2,c2 = self.evaluate(np.rot90(lr,1).copy())
+                sr3,c3 = self.evaluate(np.rot90(lr,2).copy())
+                sr4,c4 = self.evaluate(np.rot90(lr,3).copy())
+                sr5,c5 = self.evaluate(np.flip(lr,axis=1).copy())
+                sr6,c6 = self.evaluate(np.rot90(np.flip(lr,axis=1),1).copy())
+                sr7,c7 = self.evaluate(np.rot90(np.flip(lr,axis=1),2).copy())
+                sr8,c8 = self.evaluate(np.rot90(np.flip(lr,axis=1),3).copy())
+
+                sr1 = sr1
+                sr2 = np.rot90(sr2,3)
+                sr3 = np.rot90(sr3,2)
+                sr4 = np.rot90(sr4,1)
+                sr5 = np.flip(sr5,axis=1)
+                sr6 = np.flip(np.rot90(sr6,3),axis=1)
+                sr7 = np.flip(np.rot90(sr7,2),axis=1)
+                sr8 = np.flip(np.rot90(sr8,1),axis=1)
+                c1 = c1
+                c2 = np.rot90(c2,3)
+                c3 = np.rot90(c3,2)
+                c4 = np.rot90(c4,1)
+                c5 = np.flip(c5,axis=1)
+                c6 = np.flip(np.rot90(c6,3),axis=1)
+                c7 = np.flip(np.rot90(c7,2),axis=1)
+                c8 = np.flip(np.rot90(c8,1),axis=1)
+
+                #EVALUATE AND GATHER STATISTICS
+                sr = (sr1 + sr2 + sr3 + sr4 + sr5 + sr6 + sr7 + sr8) / 8.0
+                choices = (c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8) / 8.0
+                psnr,ssim = self.getstats(sr,hr)
+
+                info = {}
+                info['LRimg'] = lr
+                info['HRimg'] = hr
+                info['psnr'] = psnr
+                info['ssim'] = ssim
+                info['SRimg'] = sr
+                info['assignment'] = choices
+                print(lr_file,psnr,ssim)
+                scores[vset].append([psnr,ssim])
+                if quick: break
+
+                #save info for each file tested
+                if save:
+                    filename = os.path.join('runs',vset + os.path.basename(hr_file)+'.mat')
+                    info['LRimg'] = lr
+                    info['HRimg'] = hr
+                    info['LR_DIR'] = lr_file
+                    info['HR_DIR'] = hr_file
+                    sio.savemat(filename,info)
+                    outpath = './'
+                    for path in ['../../RCAN_TestCode/SR','BI',self.name,vset,'x' + str(self.upsize)]:
+                        outpath = os.path.join(outpath,path)
+                        if not os.path.exists(outpath): os.mkdir(outpath)
+                    outpath = os.path.splitext(os.path.join(outpath, os.path.basename(hr_file)))[0] +'_' + self.name + '_x' + str(self.upsize) + '.png'
+                    imageio.imwrite(outpath,info['SRimg'].astype(np.uint8))
 
             mu_psnr = np.mean(np.array(scores[vset])[:,0])
             mu_ssim = np.mean(np.array(scores[vset])[:,1])
@@ -243,6 +329,8 @@ if __name__ == '__main__':
         testing_regime = Tester()
         if args.evaluate:
             testing_regime.validate()
+        elif args.ensemble:
+            testing_regime.validate_ensemble()
         elif args.viewM:
 
             patchinfo = np.load(args.patchinfo)

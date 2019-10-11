@@ -115,7 +115,7 @@ class SISR():
             self.SRmodels[-1].to(self.device)
 
             self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
-            scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],200,gamma=0.5)
+            scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],200,gamma=0.2)
 
             self.schedulers.append(scheduler)
 
@@ -202,7 +202,6 @@ class SISR():
 
         #requires pytorch 1.1.0+ which is not possible on the server
         #scheduler = torch.optim.lr_scheduler.CyclicLR(self.agent.optimizer,base_lr=0.0001,max_lr=0.1)
-
         unfold_LR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE,stride=self.PATCH_SIZE,dilation=1)
         unfold_HR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE*4,stride=self.PATCH_SIZE*4,dilation=1)
 
@@ -257,7 +256,6 @@ class SISR():
 
                     #CALCULATE LOSS
                     l1diff = lossfn(SR_result,hrbatch)
-                    #l1diff = torch.mean(torch.abs(SR_result - hrbatch))
                     total_loss = l1diff + torch.mean(1 - maxval) * 0.1
                     total_loss.backward()
 
@@ -265,7 +263,7 @@ class SISR():
                     [opt.step() for opt in self.SRoptimizers]
                     if self.logger.step % 10 == 0: self.agent.opt.step()
 
-                    #[sched.step() for sched in self.schedulers]
+                    [sched.step() for sched in self.schedulers]
                     #self.agent.scheduler.step()
                     lr = self.SRoptimizers[-1].param_groups[0]['lr']
 
