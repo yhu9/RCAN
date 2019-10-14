@@ -180,8 +180,6 @@ class Model(nn.Module):
                 )
         '''
 
-        self.softmax = torch.nn.Softmax(dim=1)
-
     #FORWARD FUNCTION
     def forward(self,x):
         #x = self.SegNet(x)['out']
@@ -191,7 +189,6 @@ class Model(nn.Module):
         x = self.db3(x)
         x = self.db4(x)
         x = self.final(x)
-        x = self.softmax(x)
         return x
 
 #######################################################################################################
