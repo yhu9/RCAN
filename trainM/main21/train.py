@@ -257,11 +257,12 @@ class SISR():
                     #CALCULATE LOSS
                     l1diff = lossfn(SR_result,hrbatch)
                     total_loss = l1diff + torch.mean(1 - maxval) * 0.1
+                    #total_loss = l1diff
                     total_loss.backward()
 
                     #OPTIMIZE AND MOVE THE LEARNING RATE ACCORDING TO SCHEDULER
                     [opt.step() for opt in self.SRoptimizers]
-                    if self.logger.step % 10 == 0: self.agent.opt.step()
+                    if self.logger.step % 1 == 0: self.agent.opt.step()
 
                     [sched.step() for sched in self.schedulers]
                     #self.agent.scheduler.step()

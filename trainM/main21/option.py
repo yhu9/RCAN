@@ -10,7 +10,7 @@ parser.add_argument('--template', default='.',
 
 #MASA'S TRAINING SPECIFICATIONS
 parser.add_argument("--srmodel_path",default="../model/RCAN_BIX4.pt", help='Path to the SR model')
-parser.add_argument("--batch_size",default=4, type=int,help='Batch Size')
+parser.add_argument("--batch_size",default=6, type=int,help='Batch Size')
 parser.add_argument("--gamma",default=.9, help='Gamma Value for RL algorithm')
 parser.add_argument("--eps_start",default=.90, help='Epsilon decay start value')
 parser.add_argument("--eps_end",default=0.10, help='Epsilon decay end value')
@@ -46,6 +46,8 @@ parser.add_argument("--viewM",default=False,action='store_const',const=True,help
 parser.add_argument("--lrimg",default="",help="define low resolution image to test on")
 parser.add_argument("--hrimg",default="",help="define hr resolution image to compare with")
 parser.add_argument("--ensemble",default=False,action='store_const',const=True,help='apply ensemble testing method')
+parser.add_argument("--getbounds",default=False,action='store_const',const=True,help='get lower and upper bound of selection network')
+parser.add_argument("--viewassignment",default=False,action='store_const',const=True,help='view assignment module as well as variance of k as image map')
 
 # Hardware specifications
 parser.add_argument('--n_threads', type=int, default=3,

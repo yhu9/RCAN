@@ -11,7 +11,6 @@ import scipy.io as sio
 import imageio
 from importlib import import_module
 import matplotlib.pyplot as plt
-import matplotlib
 
 #CUSTOM IMPORTS
 import RRDBNet_arch as arch
@@ -167,10 +166,129 @@ class Tester():
 
         return SR_result,choices
 
+    #EVALUATE THE INPUT AND GET SR RESULT
+    def evaluateBounds(self,lr,hr):
+        #FORMAT THE INPUT
+        h,w,d = lr.shape
+        lr = torch.FloatTensor(lr).to(self.device)
+        hr = torch.FloatTensor(hr).to(self.device)
+        lr = lr.permute((2,0,1)).unsqueeze(0)
+        hr = hr.permute((2,0,1)).unsqueeze(0)
+        SR_result = []
+
+        #GET EACH SR RESULT
+        bestchoice = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        worstchoice = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        weightedchoice = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        choices = self.agent.model(lr)
+        lowchoice,idxlow = choices.min(dim=1)
+        maxchoice,idxhigh = choices.max(dim=1)
+        for i,sisr in enumerate(self.SRmodels):
+            sr = sisr(lr)
+            SR_result.append(sr)
+            masklow = idxlow == i
+            maskhigh = idxhigh == i
+            weightedchoice += sr * choices[:,i]
+            worstchoice += sr * masklow.float()
+            bestchoice += sr * maskhigh.float()
+        variance= torch.var(choices,1,keepdim=True, unbiased=False)
+
+        #GET EUCLIDEAN DISTANCE FOR EACH PIXEL
+        l2diff = []
+        for sr in SR_result:
+            pixelMSE = (sr - hr).pow(2).sqrt().mean(dim=1)
+            l2diff.append(pixelMSE)
+        l2diff = torch.stack(l2diff)
+        minvals,idxlow = l2diff.min(dim=0)
+        maxvals,idxhigh= l2diff.max(dim=0)
+
+        #GET LOWER AND UPPER BOUND IMAGE
+        lowerboundImg = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        upperboundImg = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        for i in range(len(SR_result)):
+            masklow = idxlow == i
+            maskhigh = idxhigh == i
+            lowerboundImg += masklow.float().unsqueeze(1) * SR_result[i]
+            upperboundImg += maskhigh.float().unsqueeze(1) * SR_result[i]
+
+        #FORMAT THE OUTPUT
+        lowerboundImg = lowerboundImg.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        upperboundImg = upperboundImg.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        bestchoice = bestchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        worstchoice = worstchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        weightedchoice = weightedchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        variance = variance.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy() * 255
+        choices = choices.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy() * 255
+
+        info = {'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'variance': variance, 'choices': choices}
+
+        return info
+
     #GATHER STATISTICS FROM SR RESULT AND GROUND TRUTH
     def getstats(self,sr,hr):
         psnr,ssim = util.calc_metrics(hr,sr,crop_border=self.upsize)
         return psnr,ssim
+
+    #TEST A MODEL ON ALL DATASETS
+    def validateSet5(self,save=False,quick=False):
+        scores = {}
+        [model.eval() for model in self.SRmodels]
+        self.agent.model.eval()
+        self.validationsets = ['Set5']
+
+        for vset in self.validationsets:
+            scores[vset] = []
+            HR_dir = os.path.join(self.hr_rootdir,vset)
+            LR_dir = os.path.join(os.path.join(self.lr_rootdir,vset),self.resfolder)
+
+            #SORT THE HR AND LR FILES IN THE SAME ORDER
+            HR_files = [os.path.join(HR_dir, f) for f in os.listdir(HR_dir)]
+            LR_files = [os.path.join(LR_dir, f) for f in os.listdir(LR_dir)]
+            HR_files.sort()
+            LR_files.sort()
+
+            #APPLY SISR ON EACH LR IMAGE AND GATHER RESULTS
+            for hr_file,lr_file in zip(HR_files,LR_files):
+                hr = imageio.imread(hr_file)
+                lr = imageio.imread(lr_file)
+
+                #EVALUATE AND GATHER STATISTICS
+                selection_details = self.evaluateBounds(lr,hr)
+                psnr_low, ssim_low = self.getstats(selection_details['lower'],hr)
+                psnr_high,ssim_high= self.getstats(selection_details['upper'],hr)
+                psnr_best,ssim_best= self.getstats(selection_details['best'],hr)
+                psnr_worst,ssim_worst = self.getstats(selection_details['worst'],hr)
+                choices = selection_details['choices']
+                sr = selection_details['weighted']
+                psnr,ssim = self.getstats(sr,hr)
+
+                selection_details['file'] = os.path.basename(lr_file)
+                print(f"low mse: {psnr_low:.3f}/{ssim_low:.3f} | high mse: {psnr_high:.3f}/{ssim_high:.3f} | best choice: {psnr_best:.3f}/{ssim_best:.3f} | worst choice: {psnr_worst:.3f}/{ssim_worst:.3f} | psnr/ssim: {psnr:.3f}/{ssim:.3f} | {selection_details['file']}")
+                scores[vset].append([psnr,ssim,psnr_low,ssim_low,psnr_high,ssim_high,psnr_best,ssim_best,psnr_worst,ssim_worst])
+                if quick: break
+
+                #save info for each file tested
+                for method in ['best','worst','weighted','lower','upper','variance','choices']:
+                    filename = os.path.join('runs',method + '_' + os.path.basename(lr_file))
+                    imageio.imwrite(filename,selection_details[method].astype(np.uint8))
+                    if method == 'choices':
+                        plt.hist(selection_details[method].flatten() / 255.0,bins=100,range=(0,1))
+                        plt.savefig(filename[:-4] + '_hist.png')
+                        plt.clf()
+
+            mu_psnr = np.mean(np.array(scores[vset])[:,0])
+            mu_ssim = np.mean(np.array(scores[vset])[:,1])
+            mu_psnr_low = np.mean(np.array(scores[vset])[:,2])
+            mu_ssim_low = np.mean(np.array(scores[vset])[:,3])
+            mu_psnr_high = np.mean(np.array(scores[vset])[:,4])
+            mu_ssim_high = np.mean(np.array(scores[vset])[:,5])
+            mu_psnr_best = np.mean(np.array(scores[vset])[:,6])
+            mu_ssim_best = np.mean(np.array(scores[vset])[:,7])
+            mu_psnr_worst = np.mean(np.array(scores[vset])[:,8])
+            mu_ssim_worst = np.mean(np.array(scores[vset])[:,9])
+            print(f"MEANS: low MSE: {mu_psnr_low:.3f}/{mu_ssim_low:.3f} | high MSE: {mu_psnr_high:.3f}/{mu_ssim_high:.3f} | best choice {mu_psnr_best:.3f}/{mu_ssim_worst:.3f} | worst choice {mu_psnr_worst:.3f}/{mu_ssim_worst:.3f} psnr/ssim: {mu_psnr:.3f}/{mu_ssim:.3f}")
+
+        return mu_psnr,mu_ssim,selection_details
 
     #TEST A MODEL ON ALL DATASETS
     def validate(self,save=True,quick=False):
@@ -327,10 +445,12 @@ if __name__ == '__main__':
     ####################################################################################################
     with torch.no_grad():
         testing_regime = Tester()
-        if args.evaluate:
-            testing_regime.validate()
+        if args.getbounds:
+            testing_regime.validateSet5()
         elif args.ensemble:
             testing_regime.validate_ensemble()
+        elif args.evaluate:
+            testing_regime.validate()
         elif args.viewM:
 
             patchinfo = np.load(args.patchinfo)
@@ -341,7 +461,7 @@ if __name__ == '__main__':
             print(data[0])
             np.mean(data)
             np.std(data)
-            matplotlib.use('tkagg')
+            #matplotlib.use('tkagg')
             plt.hist(data,bins='auto')
             plt.title("histogram of the weight data")
             plt.show()
@@ -364,6 +484,7 @@ if __name__ == '__main__':
                 cv2.imshow('High Res',cv2.cvtColor(hrimg,cv2.COLOR_BGR2RGB))
                 cv2.imshow('Super Res',cv2.cvtColor(SR,cv2.COLOR_BGR2RGB))
                 cv2.waitKey(0)
+
 
         elif args.testbasic:
             if args.hrimg != "":
@@ -391,8 +512,4 @@ if __name__ == '__main__':
                 print('your life is nothing')
             else:
                 print('your life is nothing')
-
-
-
-
 
