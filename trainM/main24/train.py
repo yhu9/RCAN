@@ -212,6 +212,8 @@ class SISR():
         #START TRAINING
         indices = list(range(len(self.TRAINING_HRPATH)))
         lossfn = torch.nn.L1Loss()
+        lossCE = torch.nn.CrossEntropyLoss()
+        softmaxfn = torch.nn.Softmax(dim=1)
 
         #random.shuffle(indices)
         for c in range(maxepoch):
@@ -241,33 +243,56 @@ class SISR():
                     hrbatch = hrbatch.to(self.device)
 
                     #GET SISR RESULTS FROM EACH MODEL
-                    SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
-                    Wloss = torch.zeros(self.batch_size,self.SR_COUNT,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
                     loss_SISR = 0
-                    probs = self.agent.model(lrbatch)
-                    maxval,idx = probs.max(dim=1)
-                    for j,sisr in enumerate(self.SRmodels):
-                        self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
-                        hr_pred = sisr(lrbatch)
-                        weighted_pred = hr_pred * (probs[:,j].unsqueeze(1).float())
-                        SR_result += weighted_pred
+                    sisrs = []
+                    probs = self.agent.model(lrbatch).clamp(1e-10,1)    #SO WE DON'T TAKE LOG OF 0...
+                    if self.logger.step % 2 == 0:
+                        for j, sisr in enumerate(self.SRmodels):
+                            hr_pred = sisr(lrbatch)
+                            sisrs.append(hr_pred)
+                    elif self.logger.step % 2 == 1:
+                        with torch.no_grad():
+                            for j, sisr in enumerate(self.SRmodels):
+                                hr_pred = sisr(lrbatch)
+                                sisrs.append(hr_pred)
 
-                    self.agent.opt.zero_grad()
+                    #OPTIMIZE ON THE SISR PREDICTION WITH ALTERNATING LOSS
+                    if self.logger.step % 2 == 0:
+                        SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
+                        for j,sr in enumerate(sisrs):
+                            self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
+                            weighted_pred = sr * (probs[:,j].unsqueeze(1).float())
+                            SR_result += weighted_pred
+                        sisrloss = lossfn(SR_result,hrbatch)
+                        sisrloss.backward()
+                        [opt.step() for opt in self.SRoptimizers]
+                        [sched.step() for sched in self.schedulers]
+                        self.logger.incstep()
+                        continue
+                    #OPTIMIZE THE POLICY BASED ON CURRENT BEST POSSIBLE
+                    elif self.logger.step % 2 == 1:
+                        self.agent.opt.zero_grad()  #zero our agent grad
+                        l1diff = []
+                        for j,sr in enumerate(sisrs):
+                            l1 = torch.abs(sr - hrbatch).mean(dim=1)
+                            l1diff.append(l1)
+                        l1diff = torch.stack(l1diff,dim=1)
+                        minval,minidx = l1diff.min(dim=1)
+                        #target = torch.nn.functional.one_hot(minidx,len(sisrs))
+                        #target = target.permute(0,3,1,2)
+                        #target.requires_grad = False
 
-                    #CALCULATE LOSS
-                    l1diff = lossfn(SR_result,hrbatch)
-                    total_loss = l1diff + torch.mean(1 - maxval)
-                    #total_loss = l1diff
-                    total_loss.backward()
+                        #cross entropy for every pixel
+                        selectionloss = torch.mean(-1 * probs.gather(1,minidx.unsqueeze(1)).log())
+                        selectionloss.backward()
+                        self.agent.opt.step()
+                        #self.agent.scheduler.step()
 
-                    #OPTIMIZE AND MOVE THE LEARNING RATE ACCORDING TO SCHEDULER
-                    [opt.step() for opt in self.SRoptimizers]
-                    if self.logger.step % 1 == 0: self.agent.opt.step()
+                    for sr in sisrs:
+                        del sr
+                    del sisrs
 
-                    [sched.step() for sched in self.schedulers]
-                    #self.agent.scheduler.step()
                     lr = self.SRoptimizers[-1].param_groups[0]['lr']
-
                     SR_result = SR_result / 255
                     hrbatch = hrbatch / 255
 
@@ -276,12 +301,11 @@ class SISR():
                     c1 = (choice == 0).float().mean()
                     c2 = (choice == 1).float().mean()
                     c3 = (choice == 2).float().mean()
-                    c4 = (choice == 3).float().mean()
-                    print('\rEpoch/img: {}/{} | LR: {:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, c1: {:.4f}, c2: {:.4f}, c3: {:.4f} c4:{:.4f}'\
-                            .format(c,n,lr,total_loss.item(),loss_SISR, c1.item(), c2.item(), c3.item(),c4.item()),end="\n")
+                    print('\rEpoch/img: {}/{} | LR: {:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
+                            .format(c,n,lr,selectionloss.item(),sisrloss.item(), c1.item(), c2.item(), c3.item()),end="\n")
 
                     #LOG AND SAVE THE INFORMATION
-                    scalar_summaries = {'Loss/AgentLoss': total_loss, 'Loss/SISRLoss': loss_SISR, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
+                    scalar_summaries = {'Loss/AgentLoss': selectionloss, 'Loss/SISRLoss': sisrloss, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
                     hist_summaries = {'actions': probs[0].view(-1), "choices": choice[0].view(-1)}
 
 

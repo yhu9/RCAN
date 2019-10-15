@@ -10,7 +10,7 @@ parser.add_argument('--template', default='.',
 
 #MASA'S TRAINING SPECIFICATIONS
 parser.add_argument("--srmodel_path",default="../model/RCAN_BIX4.pt", help='Path to the SR model')
-parser.add_argument("--batch_size",default=6, type=int,help='Batch Size')
+parser.add_argument("--batch_size",default=5, type=int,help='Batch Size')
 parser.add_argument("--gamma",default=.9, help='Gamma Value for RL algorithm')
 parser.add_argument("--eps_start",default=.90, help='Epsilon decay start value')
 parser.add_argument("--eps_end",default=0.10, help='Epsilon decay end value')

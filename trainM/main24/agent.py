@@ -159,8 +159,8 @@ class Model(nn.Module):
                 torch.nn.Conv2d(64,32,3,1,1),
                 torch.nn.BatchNorm2d(32),
                 torch.nn.PReLU(),
-                torch.nn.Conv2d(32,k,3,1,1),
-                torch.nn.Softmax(dim=1)
+                torch.nn.Conv2d(32,k,3,1,1)
+                #torch.nn.Softmax(dim=1)
                 )
         '''
         self.final = torch.nn.Sequential(
@@ -179,9 +179,22 @@ class Model(nn.Module):
                 torch.nn.Softmax(dim=1)
                 )
         '''
+        self.softmaxfn = torch.nn.Softmax(dim=1)
 
     #FORWARD FUNCTION
     def forward(self,x):
+        #x = self.SegNet(x)['out']
+        x = self.first(x)
+        x = self.db1(x)
+        x = self.db2(x)
+        x = self.db3(x)
+        x = self.db4(x)
+        x = self.final(x)
+        x = self.softmaxfn(x)
+        return x
+
+    #FORWARD FUNCTION
+    def raw(self,x):
         #x = self.SegNet(x)['out']
         x = self.first(x)
         x = self.db1(x)
@@ -222,7 +235,7 @@ class Agent():
             self.model.apply(init_weights)
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-5)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-4)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.5)
 
 #######################################################################################################
