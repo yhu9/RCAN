@@ -246,6 +246,7 @@ class SISR():
                     loss_SISR = 0
                     sisrs = []
                     probs = self.agent.model(lrbatch).clamp(1e-10,1)    #SO WE DON'T TAKE LOG OF 0...
+                    maxval,idx = probs.max(dim=1)
                     if self.logger.step % 2 == 0:
                         for j, sisr in enumerate(self.SRmodels):
                             hr_pred = sisr(lrbatch)
@@ -257,8 +258,8 @@ class SISR():
                                 sisrs.append(hr_pred)
 
                     #OPTIMIZE ON THE SISR PREDICTION WITH ALTERNATING LOSS
+                    SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
                     if self.logger.step % 2 == 0:
-                        SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
                         for j,sr in enumerate(sisrs):
                             self.SRoptimizers[j].zero_grad()           #zero our sisr gradients
                             weighted_pred = sr * (probs[:,j].unsqueeze(1).float())
@@ -266,7 +267,7 @@ class SISR():
                         sisrloss = lossfn(SR_result,hrbatch)
                         sisrloss.backward()
                         [opt.step() for opt in self.SRoptimizers]
-                        [sched.step() for sched in self.schedulers]
+                        #[sched.step() for sched in self.schedulers]
                         self.logger.incstep()
                         continue
                     #OPTIMIZE THE POLICY BASED ON CURRENT BEST POSSIBLE
@@ -274,6 +275,11 @@ class SISR():
                         self.agent.opt.zero_grad()  #zero our agent grad
                         l1diff = []
                         for j,sr in enumerate(sisrs):
+
+                            #just for visualization
+                            weighted_pred = sr * (probs[:,j].unsqueeze(1).float())
+                            SR_result += weighted_pred
+
                             l1 = torch.abs(sr - hrbatch).mean(dim=1)
                             l1diff.append(l1)
                         l1diff = torch.stack(l1diff,dim=1)
@@ -283,11 +289,10 @@ class SISR():
                         #target.requires_grad = False
 
                         #cross entropy for every pixel
-                        selectionloss = torch.mean(-1 * probs.gather(1,minidx.unsqueeze(1)).log())
+                        selectionloss = torch.mean(-1 * probs.gather(1,minidx.unsqueeze(1)).log()) + torch.mean(1 - maxval)
                         selectionloss.backward()
                         self.agent.opt.step()
                         #self.agent.scheduler.step()
-
                     for sr in sisrs:
                         del sr
                     del sisrs
@@ -313,7 +318,7 @@ class SISR():
                     self.logger.scalar_summary(scalar_summaries)
                     self.logger.hist_summary(hist_summaries)
                     self.logger.image_summary(img_summaries)
-                    if self.logger.step % 100 == 0:
+                    if self.logger.step % 100 == 1:
                         with torch.no_grad():
                             psnr,ssim,info = self.test.validate(save=False,quick=False)
                         self.agent.model.train()
