@@ -150,6 +150,7 @@ class Model(nn.Module):
         self.db4 = DenseBlock(32*4,8)
         #[b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
 
+        '''
         self.final = torch.nn.Sequential(
                 torch.nn.Upsample(scale_factor=2),
                 torch.nn.Conv2d(160,64,3,1,1),
@@ -163,22 +164,20 @@ class Model(nn.Module):
                 torch.nn.Softmax(dim=1)
                 )
         '''
+
         self.final = torch.nn.Sequential(
-                torch.nn.ReflectionPad2d(1),
-                torch.nn.Conv2d(160,64,3,1),
-                torch.nn.ConvTranspose2d(64,64,2,2),
-                torch.nn.BatchNorm2d(64),
-                torch.nn.ReLU(),
-                torch.nn.ReflectionPad2d(1),
-                torch.nn.Conv2d(64,32,3,1),
-                torch.nn.ConvTranspose2d(32,32,2,2),
+                torch.nn.Conv2d(160,32,1,1,0),
                 torch.nn.BatchNorm2d(32),
                 torch.nn.ReLU(),
-                torch.nn.ReflectionPad2d(1),
-                torch.nn.Conv2d(32,k,3,1),
+                torch.nn.Conv2d(32, 4*32,3,1,1,1),
+                torch.nn.PixelShuffle(2),
+                torch.nn.BatchNorm2d(32),
+                torch.nn.Conv2d(32,4*32,3,1,1,1),
+                torch.nn.PixelShuffle(2),
+                torch.nn.BatchNorm2d(32),
+                torch.nn.Conv2d(32,k,3,1,1,1),
                 torch.nn.Softmax(dim=1)
                 )
-        '''
 
     #FORWARD FUNCTION
     def forward(self,x):

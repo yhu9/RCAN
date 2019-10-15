@@ -151,11 +151,11 @@ class Model(nn.Module):
         #[b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
 
         self.final = torch.nn.Sequential(
-                torch.nn.Upsample(scale_factor=2),
+                torch.nn.Upsample(scale_factor=2,mode='bicubic'),
                 torch.nn.Conv2d(160,64,3,1,1),
                 torch.nn.BatchNorm2d(64),
                 torch.nn.PReLU(),
-                torch.nn.Upsample(scale_factor=2),
+                torch.nn.Upsample(scale_factor=2,mode='bicubic'),
                 torch.nn.Conv2d(64,32,3,1,1),
                 torch.nn.BatchNorm2d(32),
                 torch.nn.PReLU(),
@@ -180,6 +180,8 @@ class Model(nn.Module):
                 )
         '''
 
+        self.softmax = torch.nn.Softmax(dim=1)
+
     #FORWARD FUNCTION
     def forward(self,x):
         #x = self.SegNet(x)['out']
@@ -189,6 +191,7 @@ class Model(nn.Module):
         x = self.db3(x)
         x = self.db4(x)
         x = self.final(x)
+        x = self.softmax(x)
         return x
 
 #######################################################################################################
