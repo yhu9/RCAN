@@ -267,7 +267,7 @@ class SISR():
                         sisrloss = lossfn(SR_result,hrbatch)
                         sisrloss.backward()
                         [opt.step() for opt in self.SRoptimizers]
-                        #[sched.step() for sched in self.schedulers]
+                        [sched.step() for sched in self.schedulers]
                         self.logger.incstep()
                         continue
                     #OPTIMIZE THE POLICY BASED ON CURRENT BEST POSSIBLE
