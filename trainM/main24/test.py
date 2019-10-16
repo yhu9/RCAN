@@ -201,6 +201,8 @@ class Tester():
         l2diff = torch.stack(l2diff)
         minvals,idxlow = l2diff.min(dim=0)
         maxvals,idxhigh= l2diff.max(dim=0)
+        upperboundmask = torch.nn.functional.one_hot(idxlow,len(l2diff)).permute(0,3,1,2)
+        lowerboundmask = torch.nn.functional.one_hot(idxhigh,len(l2diff)).permute(0,3,1,2)
 
         #GET LOWER AND UPPER BOUND IMAGE
         lowerboundImg = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
@@ -220,7 +222,7 @@ class Tester():
         variance = variance.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy() * 255
         choices = choices.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy() * 255
 
-        info = {'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'variance': variance, 'choices': choices}
+        info = {'HR': hr,'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'variance': variance, 'choices': choices, 'upperboundmask': upperboundmask, 'lowerboundmask': lowerboundmask}
 
         return info
 
@@ -246,6 +248,8 @@ class Tester():
             LR_files = [os.path.join(LR_dir, f) for f in os.listdir(LR_dir)]
             HR_files.sort()
             LR_files.sort()
+            HR_files.reverse()
+            LR_files.reverse()
 
             #APPLY SISR ON EACH LR IMAGE AND GATHER RESULTS
             for hr_file,lr_file in zip(HR_files,LR_files):
@@ -265,16 +269,18 @@ class Tester():
                 selection_details['file'] = os.path.basename(lr_file)
                 print(f"low mse: {psnr_low:.3f}/{ssim_low:.3f} | high mse: {psnr_high:.3f}/{ssim_high:.3f} | best choice: {psnr_best:.3f}/{ssim_best:.3f} | worst choice: {psnr_worst:.3f}/{ssim_worst:.3f} | psnr/ssim: {psnr:.3f}/{ssim:.3f} | {selection_details['file']}")
                 scores[vset].append([psnr,ssim,psnr_low,ssim_low,psnr_high,ssim_high,psnr_best,ssim_best,psnr_worst,ssim_worst])
-                if quick: break
 
-                #save info for each file tested
-                for method in ['best','worst','weighted','lower','upper','variance','choices']:
-                    filename = os.path.join('runs',method + '_' + os.path.basename(lr_file))
-                    imageio.imwrite(filename,selection_details[method].astype(np.uint8))
-                    if method == 'choices':
-                        plt.hist(selection_details[method].flatten() / 255.0,bins=100,range=(0,1))
-                        plt.savefig(filename[:-4] + '_hist.png')
-                        plt.clf()
+                #OPTIONAL THINGS TO DO
+                if quick: break
+                if save:
+                    #save info for each file tested
+                    for method in ['best','worst','weighted','lower','upper','variance','choices']:
+                        filename = os.path.join('runs',method + '_' + os.path.basename(lr_file))
+                        imageio.imwrite(filename,selection_details[method].astype(np.uint8))
+                        if method == 'choices':
+                            plt.hist(selection_details[method].flatten() / 255.0,bins=100,range=(0,1))
+                            plt.savefig(filename[:-4] + '_hist.png')
+                            plt.clf()
 
             mu_psnr = np.mean(np.array(scores[vset])[:,0])
             mu_ssim = np.mean(np.array(scores[vset])[:,1])
@@ -286,7 +292,9 @@ class Tester():
             mu_ssim_best = np.mean(np.array(scores[vset])[:,7])
             mu_psnr_worst = np.mean(np.array(scores[vset])[:,8])
             mu_ssim_worst = np.mean(np.array(scores[vset])[:,9])
-            print(f"MEANS: low MSE: {mu_psnr_low:.3f}/{mu_ssim_low:.3f} | high MSE: {mu_psnr_high:.3f}/{mu_ssim_high:.3f} | best choice {mu_psnr_best:.3f}/{mu_ssim_worst:.3f} | worst choice {mu_psnr_worst:.3f}/{mu_ssim_worst:.3f} psnr/ssim: {mu_psnr:.3f}/{mu_ssim:.3f}")
+            print( "-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
+                    )
+            print(f"MEANS: low MSE: {mu_psnr_low:.3f}/{mu_ssim_low:.3f} | high MSE: {mu_psnr_high:.3f}/{mu_ssim_high:.3f} | best choice {mu_psnr_best:.3f}/{mu_ssim_worst:.3f} | worst choice {mu_psnr_worst:.3f}/{mu_ssim_worst:.3f} | psnr/ssim: {mu_psnr:.3f}/{mu_ssim:.3f}")
 
         return mu_psnr,mu_ssim,selection_details
 
