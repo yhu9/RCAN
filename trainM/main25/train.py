@@ -114,7 +114,7 @@ class SISR():
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
 
-            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
+            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
             scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],200,gamma=0.2)
 
             self.schedulers.append(scheduler)
@@ -257,7 +257,8 @@ class SISR():
                     for j, sr in enumerate(sisrs):
                         self.SRoptimizers[j].zero_grad()
                         mask = maxidx == j
-                        pred = sr * mask.unsqueeze(1).float()
+                        pred = sr * probs[:,j].unsqueeze(1)
+                        #pred = sr * mask.unsqueeze(1).float()
                         #pred = sr * (mask.unsqueeze(1).float() * maxval.unsqueeze(1))
                         SR_result += pred
                         l1 = torch.abs(sr-hrbatch).mean(dim=1)
