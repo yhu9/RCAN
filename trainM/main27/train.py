@@ -280,11 +280,13 @@ class SISR():
                     probs = self.agent.model(lrbatch).clamp(1e-10,1)    #SO WE DON'T TAKE LOG OF 0...
                     maxval,maxidx = probs.max(dim=1)
 
-                    # MAKE AN ACTION WITH DECAY TOWARDS GREEDY
+                    # MAKE AN ACTION WITH RANDOM ACTIONS AND DECAY TOWARDS GREEDY
                     action = maxidx.unsqueeze(1)
-                    randmap = torch.random(action.shape)
-                    print(randmap)
-                    quit()
+                    temp = 0.05 + (1 - 0.05) * math.exp(-self.logger.step * (1/1e4))
+                    randmap = torch.rand(action.shape).cuda()
+                    randchoice = torch.rand(probs.shape).max(dim=1)[1].cuda()
+                    randmask = randmap <= temp
+                    action = action * (1 - randmask.float()) + randmask.float() * randchoice.unsqueeze(1)
 
                     selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).log() * reward.gather(1,maxidx.unsqueeze(1)))
                     #selectionloss = torch.mean(-1 * probs.gather(1,minidx.unsqueeze(1)).log()) + torch.mean(1 - maxval)
@@ -300,8 +302,8 @@ class SISR():
                     c1 = (choice == 0).float().mean()
                     c2 = (choice == 1).float().mean()
                     c3 = (choice == 2).float().mean()
-                    print('\rEpoch/img: {}/{} | LR: {:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
-                            .format(c,n,lr,selectionloss.item(),sisrloss.item(), c1.item(), c2.item(), c3.item()),end="\n")
+                    print('\rEpoch/img: {}/{} | LR: {:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, c1: {:.4f}, c2: {:.4f}, c3: {:.4f}, temp: {:.4f}'\
+                            .format(c,n,lr,selectionloss.item(),sisrloss.item(), c1.item(), c2.item(), c3.item(), temp),end="\n")
 
                     #LOG AND SAVE THE INFORMATION
                     scalar_summaries = {'Loss/AgentLoss': selectionloss, 'Loss/SISRLoss': sisrloss, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
