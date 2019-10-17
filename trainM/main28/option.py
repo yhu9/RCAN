@@ -23,7 +23,7 @@ parser.add_argument("--training_lrpath",default="../../../data/DIV2K_train_LR_bi
 #parser.add_argument("--training_lrpath",default="LR")
 parser.add_argument("--training_hrpath",default="../../../data/DIV2K_train_HR")
 parser.add_argument("--testing_path",default="../../../data/DIV2K_train_LR_bicubic/X4")
-parser.add_argument("--patchsize",default=32,type=int,help="patch size to super resolve")
+parser.add_argument("--patchsize",default=28,type=int,help="patch size to super resolve")
 parser.add_argument("--loadagent",default=False, action='store_const',const=True)
 parser.add_argument("--learning_rate",default=0.01,help="Learning rate of Super Resolution Models")
 parser.add_argument("--upsize", default=4,help="Upsampling size of the network")
@@ -32,7 +32,7 @@ parser.add_argument("--gen_patchinfo",default=False,action='store_const',const=T
 parser.add_argument("--device",default='cuda:0',help='set device to train on')
 parser.add_argument("--finetune",default=True,action='store_const',const=False)
 parser.add_argument("--name", required=True, help='Name to give this training session')
-parser.add_argument("--ESRGAN_PATH",default="../model/RRDB_PSNR_ESRGAN_x4.pth",help='path to ESRGAN')
+parser.add_argument("--ESRGAN_PATH",default="../model/RRDB_ESRGAN_x4.pth",help='path to ESRGAN')
 parser.add_argument("--step",default=0,type=int,help='determine where to start training at')
 
 #MASA'S TESTING SPECIFICATIONS

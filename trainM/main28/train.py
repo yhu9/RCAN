@@ -164,8 +164,8 @@ class SISR():
         LR = LR.unfold(1,self.PATCH_SIZE,self.PATCH_SIZE).unfold(2,self.PATCH_SIZE,self.PATCH_SIZE).contiguous()
         HR = HR.unfold(1,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).unfold(2,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).contiguous()
 
-        LR = LR.view(-1,3,self.PATCH_SIZE,self.PATCH_SIZE)
-        HR = HR.view(-1,3,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE)
+        LR = LR.view(-1,3,self.PATCH_SIZE,self.PATCH_SIZE) / 255.0
+        HR = HR.view(-1,3,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE) / 255.0
 
         return LR,HR
 
@@ -200,8 +200,6 @@ class SISR():
         #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
         #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
 
-        #requires pytorch 1.1.0+ which is not possible on the server
-        #scheduler = torch.optim.lr_scheduler.CyclicLR(self.agent.optimizer,base_lr=0.0001,max_lr=0.1)
         unfold_LR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE,stride=self.PATCH_SIZE,dilation=1)
         unfold_HR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE*4,stride=self.PATCH_SIZE*4,dilation=1)
 
@@ -286,8 +284,6 @@ class SISR():
 
                     #CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
                     lr = self.SRoptimizers[-1].param_groups[0]['lr']
-                    SR_result = SR_result / 255
-                    hrbatch = hrbatch / 255
                     choice = probs.max(dim=1)[1]
                     c1 = (choice == 0).float().mean()
                     c2 = (choice == 1).float().mean()
@@ -310,11 +306,11 @@ class SISR():
                         [model.train() for model in self.SRmodels]
                         if self.logger:
                             self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
-                            mask = torch.from_numpy(info['choices']).float().permute(2,0,1) / 255.0
+                            mask = torch.from_numpy(info['choices']).float().permute(2,0,1)
                             best_mask = info['upperboundmask'].squeeze()
                             worst_mask = info['lowerboundmask'].squeeze()
-                            hrimg = info['HR'].squeeze() / 255.0
-                            srimg = torch.from_numpy(info['weighted'] / 255.0).permute(2,0,1)
+                            hrimg = info['HR'].squeeze()
+                            srimg = torch.from_numpy(info['weighted']).permute(2,0,1).clamp(0,1)
                             variance = torch.from_numpy(info['variance']).unsqueeze(0)
                             print(f"max var: {torch.max(variance)}, min var: {torch.min(variance)}")
                             variance = variance / torch.max(variance)
