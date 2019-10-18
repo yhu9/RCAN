@@ -207,6 +207,8 @@ class Tester():
         l2diff = torch.stack(l2diff)
         minvals,idxlow = l2diff.min(dim=0)
         maxvals,idxhigh= l2diff.max(dim=0)
+
+        advantage = (l2diff - torch.min(l2diff)) / torch.max(l2diff)
         upperboundmask = torch.nn.functional.one_hot(idxlow,len(l2diff)).permute(0,3,1,2)
         lowerboundmask = torch.nn.functional.one_hot(idxhigh,len(l2diff)).permute(0,3,1,2)
 
@@ -228,7 +230,7 @@ class Tester():
         variance = variance.squeeze().squeeze().data.cpu().numpy()
         choices = choices.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
 
-        info = {'HR': hr,'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'variance': variance, 'choices': choices, 'upperboundmask': upperboundmask, 'lowerboundmask': lowerboundmask}
+        info = {'HR': hr,'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'variance': variance, 'choices': choices, 'upperboundmask': upperboundmask, 'lowerboundmask': lowerboundmask, 'advantage': advantage}
 
         return info
 

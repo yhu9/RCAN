@@ -262,12 +262,16 @@ class SISR():
                         l1diff.append(l1)
                         pred = sr * probs[:,j].unsqueeze(1)
                         SR_result += pred
-                    sisrloss.backward()
-                    [opt.step() for opt in self.SRoptimizers]
                     l1diff = torch.stack(l1diff,dim=1)
+                    #sisrloss.backward()
+                    var = torch.var(l1diff,dim=1,keepdim=True)
+                    sisrloss_total = sisrloss + torch.mean(var)
+                    sisrloss_total.backward()
+                    [opt.step() for opt in self.SRoptimizers]
                     minval,minidx = l1diff.min(dim=1)
                     reward = (l1diff - l1diff.mean(1).unsqueeze(1)).detach() * -1
-                    reward = reward.sign()
+                    reward = (reward - reward.mean())/ reward.std()
+                    #reward = reward.sign()
                     target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
 
                     #UPDATE OUR AGENT
@@ -275,9 +279,8 @@ class SISR():
                     probs = self.agent.model(lrbatch)
                     maxval,maxidx = probs.max(dim=1)
                     selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
-                    if self.logger.step % 20 == 0:
-                        selectionloss.backward()
-                        self.agent.opt.step()
+                    selectionloss.backward()
+                    self.agent.opt.step()
 
                     #[sched.step() for sched in self.schedulers]
                     #self.agent.scheduler.step()
@@ -314,7 +317,8 @@ class SISR():
                             variance = torch.from_numpy(info['variance']).unsqueeze(0)
                             print(f"max var: {torch.max(variance)}, min var: {torch.min(variance)}")
                             variance = variance / torch.max(variance)
-                            self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask, 'Testing/var': variance})
+                            advantage = info['advantage'].squeeze(1)
+                            self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask, 'Testing/var': variance, 'Testing/advantage':advantage})
                         self.savemodels()
                     self.logger.incstep()
 
