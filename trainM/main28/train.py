@@ -274,7 +274,7 @@ class SISR():
                     [opt.step() for opt in self.SRoptimizers]
                     self.agent.opt.step()
 
-                    diffmap = torch.nn.functional.softmax(-1 * (l1diff - torch.mean(l1diff)),dim=1)
+                    diffmap = torch.nn.functional.softmax(-255 * (l1diff - torch.mean(l1diff)),dim=1)
                     minval,minidx = l1diff.min(dim=1)
                     reward = (l1diff - l1diff.mean(1).unsqueeze(1)).detach() * -1
                     #reward = (reward - reward.mean())/ reward.std()
