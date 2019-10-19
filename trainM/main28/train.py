@@ -256,31 +256,40 @@ class SISR():
                     l1diff = []
                     for j, sr in enumerate(sisrs):
                         self.SRoptimizers[j].zero_grad()
-                        loss = torch.mean(lossfn(sr,hrbatch) * probs[:,j].unsqueeze(1))
-                        sisrloss += loss
+                        #loss = torch.mean(lossfn(sr,hrbatch) * probs[:,j].unsqueeze(1))
+                        #sisrloss += loss
                         l1 = torch.abs(sr-hrbatch).mean(dim=1)
                         l1diff.append(l1)
                         pred = sr * probs[:,j].unsqueeze(1)
                         SR_result += pred
+                    self.agent.opt.zero_grad()
+                    maxval,maxidx = probs.max(dim=1)
                     l1diff = torch.stack(l1diff,dim=1)
                     #sisrloss.backward()
-                    var = torch.var(l1diff,dim=1,keepdim=True)
-                    sisrloss_total = sisrloss + torch.mean(var)
+                    #var = torch.var(l1diff,dim=1,keepdim=True)
+                    #sisrloss_total = sisrloss + torch.mean(var)
+                    sisrloss = lossfn(SR_result,hrbatch)
+                    sisrloss_total = sisrloss
                     sisrloss_total.backward()
                     [opt.step() for opt in self.SRoptimizers]
+                    self.agent.opt.step()
+
+                    diffmap = torch.nn.functional.softmax(-1 * (l1diff - torch.mean(l1diff)),dim=1)
                     minval,minidx = l1diff.min(dim=1)
                     reward = (l1diff - l1diff.mean(1).unsqueeze(1)).detach() * -1
-                    reward = (reward - reward.mean())/ reward.std()
-                    #reward = reward.sign()
+                    #reward = (reward - reward.mean())/ reward.std()
+                    reward = reward.sign()
                     target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
+                    #selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
+                    selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)) * reward)
 
                     #UPDATE OUR AGENT
-                    self.agent.opt.zero_grad()
-                    probs = self.agent.model(lrbatch)
-                    maxval,maxidx = probs.max(dim=1)
-                    selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
-                    selectionloss.backward()
-                    self.agent.opt.step()
+                    #self.agent.opt.zero_grad()
+                    #probs = self.agent.model(lrbatch)
+                    #maxval,maxidx = probs.max(dim=1)
+                    #selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
+                    #selectionloss.backward()
+                    #self.agent.opt.step()
 
                     #[sched.step() for sched in self.schedulers]
                     #self.agent.scheduler.step()
@@ -298,7 +307,7 @@ class SISR():
                     scalar_summaries = {'Loss/AgentLoss': selectionloss, 'Loss/SISRLoss': sisrloss, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
                     hist_summaries = {'actions': probs[0].view(-1), "choices": choice[0].view(-1)}
                     #img_summaries = {'sr/mask': probs[0][:3], 'sr/sr': SR_result[0].clamp(0,1), 'sr/hr': hrbatch[0].clamp(0,1),'sr/targetmask': target[0][:3]}
-                    img_summaries = {'sr/mask': probs[0][:3], 'sr/sr': SR_result[0].clamp(0,1),'sr/targetmask': target[0][:3]}
+                    img_summaries = {'sr/mask': probs[0][:3], 'sr/sr': SR_result[0].clamp(0,1),'sr/targetmask': target[0][:3], 'sr/diffmap': diffmap[0][:3]}
                     self.logger.scalar_summary(scalar_summaries)
                     self.logger.hist_summary(hist_summaries)
                     self.logger.image_summary(img_summaries)
