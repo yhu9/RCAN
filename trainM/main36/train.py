@@ -362,7 +362,7 @@ class SISR():
         self.optimize(curriculum)
 
         # main training loop
-        while len(data) > 0:
+        for i in count():
             difficulty = self.getDifficulty(data)
             print("ADDED NEXT EASIEST")
             np.save('runs/curriculum_' + str(i),np.array(difficulty))
@@ -370,6 +370,7 @@ class SISR():
             curriculum += A
             [data.remove(a) for a in A]
             self.optimize(curriculum)
+            if len(data) == 0: break
 
 ########################################################################################################
 ########################################################################################################
