@@ -184,7 +184,7 @@ class SISR():
         torch.save(data,"models/" + self.name + "_sisr.pth")
 
     #EVALUATE THE INPUT AND GET SR RESULT
-    def getGroundTruthIOU(self,lr,hr,samplesize=0.8):
+    def getGroundTruthIOU(self,lr,hr,samplesize=10,it=1):
         if self.model == 'ESRGAN' or self.model == 'basic':
             lr = lr / 255.0
             hr = hr / 255.0
@@ -193,11 +193,12 @@ class SISR():
         lr, hr = self.getTrainingPatches(lr,hr)
 
         # WE EVALUATE IOU ON ENTIRE IMAGE FED AS BATCH OF PATCHES
-        batchsize = int(len(lr) * samplesize)
-        patch_ids = list(range(len(hr)))
+        # batchsize = int(len(lr) * samplesize)
+        batchsize = samplesize
         score = 0
-        for i in range(0,len(lr)-1,batchsize):
-            batch_ids = torch.Tensor(patch_ids[i:i+batchsize]).long()
+        for i in range(1):
+            patch_ids = random.sample(list(range(len(hr))), batchsize)
+            batch_ids = torch.Tensor(patch_ids).long()
 
             LR = lr[batch_ids]
             HR = hr[batch_ids]
@@ -219,7 +220,7 @@ class SISR():
             _,predicted_idx = choices.max(dim=1)
             score += torch.sum((optimal_idx == predicted_idx).float()).item()
         h,w = optimal_idx.shape[-2:]
-        IOU = score / (h*w)
+        IOU = score / (batchsize * h*w)
         return IOU
 
     # GATHER THE DIFFICULTY OF THE DATASET
@@ -359,7 +360,7 @@ class SISR():
         curriculum = [alpha]
         #curriculum = list(range(len(self.TRAINING_HRPATH)))
 
-        self.optimize(curriculum)
+        self.optimize(curriculum,0.6)
 
         # main training loop
         for i in count():
@@ -369,7 +370,7 @@ class SISR():
             A = [a[0] for a in difficulty[-beta:]]
             curriculum += A
             [data.remove(a) for a in A]
-            self.optimize(curriculum)
+            self.optimize(curriculum,0.6)
             if len(data) == 0: break
 
 ########################################################################################################
