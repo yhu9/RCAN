@@ -67,19 +67,19 @@ class DenseBlock(nn.Module):
         # CREATE OUR DENSEBLOCK WHICH ADDS GROWTH FEATURE CHANNELS TO GLOBAL
         self.block1 = torch.nn.Sequential(
                 torch.nn.Conv2d(channel_in,k,3,1,1),
-                torch.nn.PReLU()
+                torch.nn.ReLU()
                 )
         self.block2 = torch.nn.Sequential(
                 torch.nn.Conv2d(channel_in + 1*k,k,3,1,1),
-                torch.nn.PReLU()
+                torch.nn.ReLU()
                 )
         self.block3 = torch.nn.Sequential(
                 torch.nn.Conv2d(channel_in + 2*k,k,3,1,1),
-                torch.nn.PReLU()
+                torch.nn.ReLU()
                 )
         self.block4 = torch.nn.Sequential(
                 torch.nn.Conv2d(channel_in + 3*k,channel_in,3,1,1),
-                torch.nn.PReLU()
+                torch.nn.ReLU()
                 )
 
     # forward function
@@ -95,12 +95,6 @@ class Model(nn.Module):
     def __init__(self,k):
         super(Model,self).__init__()
 
-        #ZERO OUT THE WEIGHTS
-        def zeroout(m):
-            with torch.no_grad():
-                if type(m) == torch.nn.Conv2d:
-                    m.weight.data *= 0.0
-
         #self.SegNet = models.segmentation.fcn_resnet50(pretrained=False,num_classes=48)
         #self.SegNet = models.segmentation.deeplabv3_resnet101(pretrained=False,num_classes=160)
 
@@ -114,9 +108,9 @@ class Model(nn.Module):
 
         self.final = torch.nn.Sequential(
                 torch.nn.Conv2d(36,36,3,1,1),
-                torch.nn.PReLU(),
+                torch.nn.ReLU(),
                 torch.nn.Conv2d(36,k,3,1,1),
-                torch.nn.PReLU(),
+                torch.nn.ReLU(),
                 torch.nn.Softmax(dim=1)
                 )
 
@@ -139,6 +133,7 @@ class Agent():
         def init_weights(m):
             if isinstance(m,nn.Linear) or isinstance(m,nn.Conv2d):
                 torch.nn.init.xavier_uniform_(m.weight.data)
+                m.bias.data.fill_(0.01)
         #INITIALIZE HYPER PARAMS
         self.device = args.device
         self.ACTION_SPACE = args.action_space
@@ -160,7 +155,7 @@ class Agent():
             self.model.apply(init_weights)
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-5)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-4)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.5)
 
 #######################################################################################################

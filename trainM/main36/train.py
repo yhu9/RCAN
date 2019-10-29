@@ -229,6 +229,7 @@ class SISR():
         self.agent.model.eval()
         difficulty = []
         for d in DATA:
+
             lrpath = self.TRAINING_LRPATH[d]
             hrpath = self.TRAINING_HRPATH[d]
             LR = imageio.imread(lrpath)
@@ -238,13 +239,14 @@ class SISR():
                 iou = self.getGroundTruthIOU(LR,HR)
 
             difficulty.append( (d,iou) )
+            print(f"Image: {d}, IOU: {iou:.4f}")
         difficulty = sorted(difficulty,key=lambda x:x[1])
         [sisr.train() for sisr in self.SRmodels]
         self.agent.model.train()
         return difficulty
 
     #TRAINING REGIMEN
-    def optimize(self,data,iou_threshold=0.7):
+    def optimize(self,data,iou_threshold=0.7,maxiter=1000):
         #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
         #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
 
@@ -252,9 +254,8 @@ class SISR():
         with torch.no_grad():
             psnr,ssim,info = self.test.validateSet5(save=False,quick=False)
 
-        agent_iou = deque(maxlen=100)
+        agent_iou = deque(maxlen=maxiter)
         while True:
-
             # GET INPUT FROM CURRENT IMAGE
             idx = random.sample(data,1)[0]
             HRpath = self.TRAINING_HRPATH[idx]
@@ -275,7 +276,7 @@ class SISR():
             lrbatch = lrbatch.to(self.device)
             hrbatch = hrbatch.to(self.device)
 
-            #GET SISR RESULTS FROM EACH MODEL
+            # GET SISR RESULTS FROM EACH MODEL
             sisrs = []
             for j, sisr in enumerate(self.SRmodels):
                 hr_pred = sisr(lrbatch)
@@ -285,30 +286,44 @@ class SISR():
 
             # UPDATE BOTH THE SISR MODELS AND THE SELECTION MODEL ACCORDING TO THEIR LOSS
             SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
-            SR_result.requires_grad = False
-            l1diff = []
+            l2diff = []
             sisrloss = torch.zeros(self.batch_size,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).to(self.device)
             for j, sr in enumerate(sisrs):
                 self.SRoptimizers[j].zero_grad()
-                l1 = torch.abs(sr-hrbatch).mean(dim=1)
-                sisrloss += probs[:,j] * l1
-                l1diff.append(l1)
+                diff = (sr-hrbatch).pow(2).sum(dim=1)
+                #diff = torch.abs(sr-hrbatch).mean(1)
+                sisrloss += probs[:,j] * diff
+                l2diff.append(diff)
                 pred = sr * probs[:,j].unsqueeze(1)
                 SR_result += pred
+            l2diff = torch.stack(l2diff, dim=1)
             self.agent.opt.zero_grad()
-            maxval,maxidx = probs.max(dim=1)
-            l1diff = torch.stack(l1diff,dim=1)
-            sisrloss_total = sisrloss.mean()
+            minval, minidx = l2diff.min(dim=1)
+            selectionloss = -1 * probs.gather(1, minidx.unsqueeze(1)).clamp(1e-16).log()
+            sisrloss_total = sisrloss.mean()*100 + selectionloss.mean()
+            #sisrloss_total = sisrloss.mean()
+            #sisrloss_total = torch.mean((SR_result - hrbatch).pow(2).mean(1))
             sisrloss_total.backward()
             [opt.step() for opt in self.SRoptimizers]
             self.agent.opt.step()
 
-            diffmap = torch.nn.functional.softmax(-255 * (l1diff - torch.mean(l1diff)),dim=1)
-            minval,minidx = l1diff.min(dim=1)
-            reward = (l1diff - l1diff.mean(1).unsqueeze(1)).detach() * -1
-            reward = reward.sign()
+            minval, minidx = l2diff.min(dim=1)
+
+            #probs = self.agent.model(sr_results.detach())
+            #selectionloss = torch.mean(-1 * probs.gather(1,minidx.unsqueeze(1)).clamp(1e-16).log())
+            #sisrloss = torch.zeros(self.batch_size,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).to(self.device)
+            #for j, sisr in enumerate(self.SRmodels):
+            #    hr_pred = sisr(lrbatch)
+            #    l2 = (hr_pred - hrbatch).pow(2).sum(dim=1)
+            #    sisrloss += probs[:,j] * l2
+            #loss2 = sisrloss.mean()
+            #self.agent.opt.zero_grad()
+            #loss2.backward()
+            #self.agent.opt.step()
+
+            diffmap = torch.nn.functional.softmax(-255 * (l2diff - torch.mean(l2diff)),dim=1)
             target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
-            selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
+            selectionloss = selectionloss.mean()
 
             # CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
             lr = self.SRoptimizers[-1].param_groups[0]['lr']
@@ -322,14 +337,11 @@ class SISR():
             c1 = (choice == 0).float().mean()
             c2 = (choice == 1).float().mean()
             c3 = (choice == 2).float().mean()
-            s1 = torch.mean(l1diff[0])
-            s2 = torch.mean(l1diff[1])
-            s3 = torch.mean(l1diff[2])
-            print('\rdata size/img: {}/{} | LR sr/ag: {:.8f}/{:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, | IOU: {:.4f} | s1: {:.4f}, s2: {:.4f}, s3: {:.4f}'\
-                    .format(len(data),self.logger.step,lr,lr2,selectionloss.item(),sisrloss_total.item(), np.mean(agent_iou), s1.item(), s2.item(), s3.item()),end="\n")
+            print('\rdata size/img: {}/{} | LR sr/ag: {:.8f}/{:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, | IOU: {:.4f} | c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
+                    .format(len(data),self.logger.step,lr,lr2,selectionloss.item(),sisrloss_total.item(), np.mean(agent_iou), c1.item(), c2.item(), c3.item()),end="\n")
 
-            #LOG AND SAVE THE INFORMATION
-            scalar_summaries = {'Loss/AgentLoss': selectionloss, 'Loss/sisrloss_total': sisrloss_total,'Loss/IOU': iou, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3, "sisr/s1": s1, "sisr/s2": s2, "sisr/s3": s3}
+            # LOG AND SAVE THE INFORMATION
+            scalar_summaries = {'Loss/AgentLoss': selectionloss, 'Loss/sisrloss_total': sisrloss_total,'Loss/IOU': iou, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
             hist_summaries = {'actions': probs[0].view(-1), "choices": choice[0].view(-1)}
             img_summaries = {'sr/mask': probs[0][:3], 'sr/sr': SR_result[0].clamp(0,1),'sr/targetmask': target[0][:3], 'sr/diffmap': diffmap[0][:3]}
             self.logger.scalar_summary(scalar_summaries)
@@ -351,7 +363,7 @@ class SISR():
                 self.savemodels()
             self.logger.incstep()
 
-            if np.mean(agent_iou) >= iou_threshold and len(agent_iou) == 100: break
+            if np.mean(agent_iou) >= iou_threshold and len(agent_iou) == maxiter: break
 
     # TRAINING REGIMEN
     def train(self,alpha=0, beta=1):
@@ -360,7 +372,7 @@ class SISR():
         curriculum = [alpha]
         #curriculum = list(range(len(self.TRAINING_HRPATH)))
 
-        self.optimize(curriculum,0.6)
+        self.optimize(curriculum,0.4)
 
         # main training loop
         for i in count():
@@ -370,7 +382,7 @@ class SISR():
             A = [a[0] for a in difficulty[-beta:]]
             curriculum += A
             [data.remove(a) for a in A]
-            self.optimize(curriculum,0.6)
+            self.optimize(curriculum,0.4)
             if len(data) == 0: break
 
 ########################################################################################################
