@@ -301,7 +301,10 @@ class SISR():
             minval, minidx = l2diff.min(dim=1)
             selectionloss = -1 * probs.gather(1, minidx.unsqueeze(1)).clamp(1e-16).log()
             #sisrloss = torch.abs(SR_result - hrbatch).mean()
-            sisrloss_total = sisrloss.mean()*100 + selectionloss.mean()
+            if self.model == 'RCAN':
+                sisrloss_total = sisrloss.mean() + selectionloss.mean() * 255
+            else:
+                sisrloss_total = sisrloss.mean()*100 + selectionloss.mean()
             # sisrloss_total = sisrloss.mean()
             # sisrloss_total = torch.mean((SR_result - hrbatch).pow(2).mean(1))
             sisrloss_total.backward()
