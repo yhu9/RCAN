@@ -118,7 +118,7 @@ class SISR():
             self.SRmodels[-1].to(self.device)
 
             self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
-            scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],200,gamma=0.8)
+            scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],1000,gamma=0.5)
 
             self.schedulers.append(scheduler)
 
@@ -246,7 +246,7 @@ class SISR():
         return difficulty
 
     #TRAINING REGIMEN
-    def optimize(self,data,iou_threshold=0.7,maxiter=1000):
+    def optimize(self,data,iou_threshold=0.7,miniter=500):
         #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
         #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
 
@@ -254,7 +254,7 @@ class SISR():
         with torch.no_grad():
             psnr,ssim,info = self.test.validateSet5(save=False,quick=False)
 
-        agent_iou = deque(maxlen=maxiter)
+        agent_iou = deque(maxlen=miniter)
         while True:
             # GET INPUT FROM CURRENT IMAGE
             idx = random.sample(data,1)[0]
@@ -300,15 +300,18 @@ class SISR():
             self.agent.opt.zero_grad()
             minval, minidx = l2diff.min(dim=1)
             selectionloss = -1 * probs.gather(1, minidx.unsqueeze(1)).clamp(1e-16).log()
+            #sisrloss = torch.abs(SR_result - hrbatch).mean()
             sisrloss_total = sisrloss.mean()*100 + selectionloss.mean()
-            #sisrloss_total = sisrloss.mean()
-            #sisrloss_total = torch.mean((SR_result - hrbatch).pow(2).mean(1))
+            # sisrloss_total = sisrloss.mean()
+            # sisrloss_total = torch.mean((SR_result - hrbatch).pow(2).mean(1))
             sisrloss_total.backward()
             [opt.step() for opt in self.SRoptimizers]
             self.agent.opt.step()
+            [sched.step() for sched in self.schedulers]
 
             minval, minidx = l2diff.min(dim=1)
 
+            # something for the future probably ???
             #probs = self.agent.model(sr_results.detach())
             #selectionloss = torch.mean(-1 * probs.gather(1,minidx.unsqueeze(1)).clamp(1e-16).log())
             #sisrloss = torch.zeros(self.batch_size,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).to(self.device)
@@ -324,6 +327,7 @@ class SISR():
             diffmap = torch.nn.functional.softmax(-255 * (l2diff - torch.mean(l2diff)),dim=1)
             target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
             selectionloss = selectionloss.mean()
+            sisrloss = sisrloss.mean()
 
             # CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
             lr = self.SRoptimizers[-1].param_groups[0]['lr']
@@ -337,15 +341,15 @@ class SISR():
             c1 = (choice == 0).float().mean()
             c2 = (choice == 1).float().mean()
             c3 = (choice == 2).float().mean()
-            print('\rdata size/img: {}/{} | LR sr/ag: {:.8f}/{:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, | IOU: {:.4f} | c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
-                    .format(len(data),self.logger.step,lr,lr2,selectionloss.item(),sisrloss_total.item(), np.mean(agent_iou), c1.item(), c2.item(), c3.item()),end="\n")
+            print('\rdata size/img: {}/{} | LR sr/ag: {:.8f}/{:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f},  Total: {:.4f}| IOU: {:.4f} | c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
+                    .format(len(data),self.logger.step,lr,lr2,selectionloss.item(),sisrloss.item(), sisrloss_total.item(), np.mean(agent_iou), c1.item(), c2.item(), c3.item()),end="\n")
 
             # LOG AND SAVE THE INFORMATION
-            scalar_summaries = {'Loss/AgentLoss': selectionloss, 'Loss/sisrloss_total': sisrloss_total,'Loss/IOU': iou, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
-            hist_summaries = {'actions': probs[0].view(-1), "choices": choice[0].view(-1)}
-            img_summaries = {'sr/mask': probs[0][:3], 'sr/sr': SR_result[0].clamp(0,1),'sr/targetmask': target[0][:3], 'sr/diffmap': diffmap[0][:3]}
+            scalar_summaries = {'Loss/AgentLoss': selectionloss, 'Loss/sisrloss_total': sisrloss_total,'Loss/sisrloss': sisrloss, 'Loss/IOU': iou, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
+            #hist_summaries = {'actions': probs[0].view(-1), "choices": choice[0].view(-1)}
+            img_summaries = {'sr/mask': probs[0][:3], 'sr/sr': SR_result[0][:3].clamp(0,1),'sr/targetmask': target[0][:3], 'sr/diffmap': diffmap[0][:3]}
             self.logger.scalar_summary(scalar_summaries)
-            self.logger.hist_summary(hist_summaries)
+            #self.logger.hist_summary(hist_summaries)
             self.logger.image_summary(img_summaries)
             if self.logger.step % 100 == 0:
                 with torch.no_grad():
@@ -359,21 +363,20 @@ class SISR():
                     worst_mask = info['lowerboundmask'].squeeze()
                     hrimg = info['HR'].squeeze() / 255.0
                     srimg = torch.from_numpy(info['weighted'] / 255.0).permute(2,0,1)
-                    self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask})
+                    self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask[:3]})
                 self.savemodels()
             self.logger.incstep()
 
-            if np.mean(agent_iou) >= iou_threshold and len(agent_iou) == maxiter: break
+            if np.mean(agent_iou) >= iou_threshold and len(agent_iou) == miniter: break
 
     # TRAINING REGIMEN
-    def train(self,alpha=0, beta=1):
+    def train(self,alpha=0, beta=20):
         data = set(range(len(self.TRAINING_HRPATH)))
         data.remove(alpha)
-        curriculum = [alpha]
-        #curriculum = list(range(len(self.TRAINING_HRPATH)))
+        #curriculum = [alpha]
+        curriculum = list(range(len(self.TRAINING_HRPATH)))
 
-        self.optimize(curriculum,0.4)
-
+        self.optimize(curriculum,1.0)
         # main training loop
         for i in count():
             difficulty = self.getDifficulty(data)
@@ -383,7 +386,6 @@ class SISR():
             curriculum += A
             [data.remove(a) for a in A]
             self.optimize(curriculum,0.4)
-            if len(data) == 0: break
 
 ########################################################################################################
 ########################################################################################################
