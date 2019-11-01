@@ -1,20 +1,29 @@
 #NATIVE IMPORTS
 import os
 import glob
+import argparse
+from collections import deque
 from itertools import count
 import random
+import time
 import imageio
-from collections import deque
+import math
 
 #OPEN SOURCE IMPORTS
+import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
+import torchvision.transforms.functional as transforms
+from sklearn.feature_extraction import image
+from skimage.util.shape import view_as_windows
 
 #CUSTOM IMPORTS
 import RRDBNet_arch as arch
 import agent
 import logger
 import utility
+import model
 from option import args     #COMMAND LINE ARGUMENTS VIEW option.py file
 from importlib import import_module
 from utils import util
@@ -42,7 +51,6 @@ class SISR():
     def __init__(self, args=args):
 
         #INITIALIZE VARIABLES
-        self.SR_COUNT = args.action_space
         SRMODEL_PATH = args.srmodel_path
         self.batch_size = args.batch_size
         self.TRAINING_LRPATH = glob.glob(os.path.join(args.training_lrpath,"*"))
@@ -97,6 +105,7 @@ class SISR():
                 model.load_state_dict(loadedparams["sisr"+str(i)])
                 print('continuing training')
             elif args.random:
+                model.apply(init_weights)
                 print('random init')
             elif args.model == 'ESRGAN':
                 model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
@@ -108,55 +117,87 @@ class SISR():
 
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
-
             self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
-            scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],200,gamma=0.8)
-
+            scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],1000,gamma=0.5)
             self.schedulers.append(scheduler)
 
         #INCREMENT SCHEDULES TO THE CORRECT LOCATION
         for i in range(args.step):
             [s.step() for s in self.schedulers]
 
-    # SAVE THE AGENT AND THE SISR MODELS INTO A SINGLE FILE
+    #TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
+    def getTrainingPatches(self,LR,HR,transform=True):
+        patch_size = self.PATCH_SIZE
+        stride = self.PATCH_SIZE
+
+        #RANDOMLY FLIP AND ROTATE IMAGE
+        if transform:
+            bit1 = random.random() > 0.5
+            bit2 = random.random() > 0.5
+            bit3 = random.random() > 0.5
+            if bit1:
+                LR = np.rot90(LR)
+                HR = np.rot90(HR)
+            if bit2:
+                LR = np.flip(LR,axis=1)
+                HR = np.flip(HR,axis=1)
+            if bit3:
+                LR = np.flip(LR,axis=0)
+                HR = np.flip(HR,axis=0)
+
+        #ENSURE BOXES of size PATCH_SIZE CAN FIT OVER ENTIRE IMAGE
+        h,w,d = LR.shape
+        padh = patch_size - (h % patch_size)
+        padw = patch_size - (w % patch_size)
+        h = h + padh
+        w = w + padw
+        lrh, lrw = h,w
+        LR = np.pad(LR,pad_width=((0,padh),(0,padw),(0,0)), mode='symmetric')       #symmetric padding to allow meaningful edges
+        h,w,d = HR.shape
+        padh = (patch_size*self.UPSIZE) - (h % (patch_size*self.UPSIZE))
+        padw = (patch_size*self.UPSIZE) - (w % (patch_size*self.UPSIZE))
+        h = h + padh
+        w = w + padw
+        hrh,hrw = h,w
+        HR = np.pad(HR,pad_width=((0,padh),(0,padw),(0,0)),mode='symmetric')
+
+        LR = torch.from_numpy(LR).float().unsqueeze(0)
+        HR = torch.from_numpy(HR).float().unsqueeze(0)
+
+        LR = LR.unfold(1,self.PATCH_SIZE,self.PATCH_SIZE).unfold(2,self.PATCH_SIZE,self.PATCH_SIZE).contiguous()
+        HR = HR.unfold(1,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).unfold(2,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).contiguous()
+
+        LR = LR.view(-1,3,self.PATCH_SIZE,self.PATCH_SIZE)
+        HR = HR.view(-1,3,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE)
+
+        return LR,HR
+
+    #SAVE THE AGENT AND THE SISR MODELS INTO A SINGLE FILE
     def savemodels(self):
-        data = {'agent': self.agent.model.state_dict()}
+        data = {}
+        data['agent'] = self.agent.model.state_dict()
         for i,m in enumerate(self.SRmodels):
             modelname = "sisr" + str(i)
             data[modelname] = m.state_dict()
         data['step'] = self.logger.step
         torch.save(data,"models/" + self.name + "_sisr.pth")
 
-    # CREATE A CURICULUM ON ADDITIONAL DATA
-    # def curriculum(self,addtional_data):
-    def getTrainingIndices(self):
-        indices = list(range(len(self.TRAINING_HRPATH)))
-        data = []
-        for idx in indices:
-            HRpath = self.TRAINING_HRPATH[idx]
-            LRpath = self.TRAINING_LRPATH[idx]
-            LR = imageio.imread(LRpath)
-            HR = imageio.imread(HRpath)
-            LR,HR,_ = util.getTrainingPatches(LR,HR,args)
-
-            data.append(range(len(LR)))
-        return data
-
     #EVALUATE THE INPUT AND GET SR RESULT
-    def getGroundTruthIOU(self,lr,hr,samplesize=0.1):
-        if self.model == 'ESRGAN' or args.model == 'basic':
+    def getGroundTruthIOU(self,lr,hr,samplesize=10,it=1):
+        if self.model == 'ESRGAN' or self.model == 'basic':
             lr = lr / 255.0
             hr = hr / 255.0
 
         #FORMAT THE INPUT
-        lr, hr, info = util.getTrainingPatches(lr,hr,args,transform=False)
+        lr, hr = self.getTrainingPatches(lr,hr)
 
         # WE EVALUATE IOU ON ENTIRE IMAGE FED AS BATCH OF PATCHES
-        batchsize = int(len(lr) * samplesize)
-        patch_ids = list(range(len(hr)))
+        # batchsize = int(len(lr) * samplesize)
+        batchsize = samplesize
         score = 0
-        for i in range(0,len(lr)-1,batchsize):
-            batch_ids = torch.Tensor(patch_ids[i:i+batchsize]).long()
+        for i in range(1):
+            patch_ids = random.sample(list(range(len(hr))), batchsize)
+            batch_ids = torch.Tensor(patch_ids).long()
 
             LR = lr[batch_ids]
             HR = hr[batch_ids]
@@ -164,16 +205,21 @@ class SISR():
             HR = HR.to(self.device)
 
             #GET EACH SR RESULT
-            choices = self.agent.model(LR)
+            sisrs = []
             l1 = []
             for i, sisr in enumerate(self.SRmodels):
-                l1.append(torch.abs(sisr(LR) - HR).mean(dim=1).mean(dim=1).mean(dim=1))
+                sr_result = sisr(LR)
+                sisrs.append(sr_result)
+                l1.append(torch.abs(sr_result - HR).mean(dim=1))
+            sisrs = torch.cat(sisrs,dim=1)
+            choices = self.agent.model(sisrs)
             l1diff = torch.stack(l1,dim=1)
 
             _,optimal_idx = l1diff.min(dim=1)
             _,predicted_idx = choices.max(dim=1)
             score += torch.sum((optimal_idx == predicted_idx).float()).item()
-        IOU = score / len(lr)
+        h,w = optimal_idx.shape[-2:]
+        IOU = score / (batchsize * h*w)
         return IOU
 
     # GATHER THE DIFFICULTY OF THE DATASET
@@ -182,6 +228,7 @@ class SISR():
         self.agent.model.eval()
         difficulty = []
         for d in DATA:
+
             lrpath = self.TRAINING_LRPATH[d]
             hrpath = self.TRAINING_HRPATH[d]
             LR = imageio.imread(lrpath)
@@ -191,144 +238,168 @@ class SISR():
                 iou = self.getGroundTruthIOU(LR,HR)
 
             difficulty.append( (d,iou) )
+            print(f"Image: {d}, IOU: {iou:.4f}")
         difficulty = sorted(difficulty,key=lambda x:x[1])
+        [sisr.train() for sisr in self.SRmodels]
+        self.agent.model.train()
         return difficulty
 
-    # OPTIMIZE SR MODELS AND SELECTION MODEL WITH CURRICULUM FOR 5 EPOCHS BY DEFAULT
-    # input: data => 1D list of ints
-    # output: none
-    def optimize(self, data,iou_threshold=0.8):
-        self.agent.model.train()
-        [model.train() for model in self.SRmodels]
-        # get an image from data
-        for c,idx in enumerate(data):
+    #TRAINING REGIMEN
+    def optimize(self,data,iou_threshold=0.7,miniter=500):
+        #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
+        #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
 
-            agent_iou = deque(maxlen=100)
-
-            # while the agent iou is not good enough
-            while True:
-                # get an image
-                idx = random.sample(data,1)[0]
-
-                hr_path = self.TRAINING_HRPATH[idx]
-                lr_path = self.TRAINING_LRPATH[idx]
-                lr = imageio.imread(lr_path)
-                hr = imageio.imread(hr_path)
-
-                lr, hr, _ = util.getTrainingPatches(lr,hr,args,transform=False)
-
-                patch_ids = list(range(len(lr)))
-                random.shuffle(patch_ids)
-
-                # get the mini batch
-                batch_ids = random.sample(patch_ids,self.batch_size)
-                labels = torch.Tensor(batch_ids).long()
-                lr_batch = lr[labels,:,:,:]
-                hr_batch = hr[labels,:,:,:]
-                lr_batch = lr_batch.to(self.device)
-                hr_batch = hr_batch.to(self.device)
-                if args.model == 'ESRGAN' or args.model == 'basic':
-                    lr_batch = lr_batch / 255.0
-                    hr_batch = hr_batch / 255.0
-
-                # UPDATE THE SISR MODELS
-                self.agent.opt.zero_grad()
-                sr_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
-                sr_result.requires_gard = False
-                probs = self.agent.model(lr_batch)
-                sisr_loss = 0
-                sisrs = []
-                l1loss = []
-                for j,sisr in enumerate(self.SRmodels):
-                    self.SRoptimizers[j].zero_grad()
-                    hr_pred = sisr(lr_batch)
-                    l1 = torch.abs(hr_pred - hr_batch).sum(dim=1).sum(dim=1).sum(dim=1) / ((self.PATCH_SIZE * self.UPSIZE)**2 * 3)
-                    sisr_loss += torch.mean(l1 * probs[:,j])
-                    l1loss.append(l1)
-                    sisrs.append(hr_pred)
-                sisr_loss_total = sisr_loss
-                sisr_loss_total.backward()
-                [opt.step() for opt in self.SRoptimizers]
-                self.agent.opt.step()
-
-                # VISUALIZATION
-                # CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
-                lr1 = self.SRoptimizers[-1].param_groups[0]['lr']
-                lr2 = self.agent.opt.param_groups[0]['lr']
-                _, maxarg = probs[0].max(0)
-                sample_sr = sisrs[maxarg.item()][0]
-                sample_hr = hr_batch[0]
-                if args.model != 'ESRGAN' and args.model != 'basic':
-                    sample_sr = sample_sr / 255.0
-                    sample_hr = sample_hr / 255.0
-
-                choice = probs.max(dim=1)[1]
-                l1loss = torch.stack(l1loss, dim=1)
-                lowl1, optimalidx = l1loss.min(dim=1)
-                iou = (choice == optimalidx).float().sum() / (len(choice))
-                c1 = (choice == 0).float().mean()
-                c2 = (choice == 1).float().mean()
-                c3 = (choice == 2).float().mean()
-                s1 = torch.mean(l1loss[:,0]).item()
-                s2 = torch.mean(l1loss[:,1]).item()
-                s3 = torch.mean(l1loss[:,2]).item()
-
-                agent_iou.append(iou.item())
-
-                print('\rEpoch/img: {}/{} | LR sr/ag: {:.8f}/{:.8f} | Agent Loss: {:.4f} | SISR Loss: {:.4f} | IOU : {:.4f} | s1: {:.4f} | s2: {:.4f} | s3: {:.4f}'\
-                        .format(c,self.logger.step,lr1,lr2,sisr_loss_total.item(),sisr_loss_total.item(),np.mean(agent_iou),s1,s2,s3),end="\n")
-
-                #LOG AND SAVE THE INFORMATION
-                scalar_summaries = {'Loss/AgentLoss': sisr_loss_total, 'Loss/SISRLoss': sisr_loss_total,"Loss/IOU": np.mean(agent_iou), "choice/c1": c1, "choice/c2": c2, "choice/c3": c3, "sisr/s1": s1, "sisr/s2": s2, "sisr/s3": s3}
-                hist_summaries = {'actions': probs.view(-1), "choices": choice.view(-1)}
-                img_summaries = {'sr/HR': sample_hr.clamp(0,1),'sr/SR': sample_sr.clamp(0,1)}
-                self.logger.hist_summary(hist_summaries)
-                self.logger.scalar_summary(scalar_summaries)
-                self.logger.image_summary(img_summaries)
-                if self.logger.step % 100 == 0:
-                    with torch.no_grad():
-                        psnr,ssim,info = self.test.validateSet5(save=False,quick=False)
-                        self.agent.model.train()
-                        [model.train() for model in self.SRmodels]
-                    if self.logger:
-                        self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
-                        weightedmask = torch.from_numpy(info['mask']).permute(2,0,1) / 255.0
-                        mask = torch.from_numpy(info['maxchoice']).permute(2,0,1) / 255.0
-                        optimal_mask = torch.from_numpy(info['optimalchoice']).permute(2,0,1) / 255.0
-                        hrimg = torch.Tensor(info["HR"]).permute(2,0,1) / 255.0
-                        srimg = torch.from_numpy(info['max']).permute(2,0,1) / 255.0
-                        self.logger.image_summary({'Testing/Test Assignment':mask[:3],'Testing/Weight': weightedmask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/optimalmask': optimal_mask})
-                    self.savemodels()
-                self.logger.incstep()
-
-                if np.mean(agent_iou) > iou_threshold: break
-
-    # TRAINING REGIMEN
-    def train(self,alpha=0, beta=5):
-        # QUICK CHECK ON EVERYTHING
+        #QUICK CHECK ON EVERYTHING
         with torch.no_grad():
             psnr,ssim,info = self.test.validateSet5(save=False,quick=False)
 
-        # START TRAINING
+        agent_iou = deque(maxlen=miniter)
+        while True:
+            # GET INPUT FROM CURRENT IMAGE
+            idx = random.sample(data,1)[0]
+            HRpath = self.TRAINING_HRPATH[idx]
+            LRpath = self.TRAINING_LRPATH[idx]
+            LR = imageio.imread(LRpath)
+            HR = imageio.imread(HRpath)
+            if self.model == 'ESRGAN' or self.model == 'basic':
+                LR = LR / 255.0
+                HR = HR / 255.0
+            LR,HR = self.getTrainingPatches(LR,HR)
+            patch_ids = list(range(len(LR)))
+
+            batch_ids = random.sample(patch_ids,self.batch_size)
+            labels = torch.Tensor(batch_ids).long()
+
+            lrbatch = LR[labels,:,:,:]
+            hrbatch = HR[labels,:,:,:]
+            lrbatch = lrbatch.to(self.device)
+            hrbatch = hrbatch.to(self.device)
+
+            # GET SISR RESULTS FROM EACH MODEL
+            sisrs = []
+            l2diff = []
+            for j, sisr in enumerate(self.SRmodels):
+                self.SRoptimizers[j].zero_grad()
+                sr_pred = sisr(lrbatch)
+                #diff = (sr_pred-hrbatch).pow(2).sum(dim=1)     # l2 loss
+                diff = torch.abs(sr_pred-hrbatch).sum(dim=1)    # l1 loss
+                sisrs.append(sr_pred)
+                l2diff.append(diff)
+            sr_results = torch.cat(sisrs,dim=1)
+
+            # get optimal assignment
+            l2diff = torch.stack(l2diff, dim=1)
+            minval, minidx = l2diff.min(dim=1)
+
+            # loss optimal
+            sisrloss = minval.mean()
+            #sisrloss.backward()
+            #[opt.step() for opt in self.SRoptimizers]
+
+            # loss selection
+            # MAKE AN ACTION WITH RANDOM ACTIONS AND DECAY TOWARDS GREEDY
+            self.agent.opt.zero_grad()
+            probs = self.agent.model(sr_results)
+            choice = probs.max(dim=1)[1]
+            action = choice.unsqueeze(1)
+            temp = 0.05 + (1 - 0.05) * math.exp(-self.logger.step * (1/1e3))
+            randmap = torch.rand(action.shape).to(self.device)
+            randchoice = torch.rand(probs.shape).max(dim=1)[1].to(self.device)
+            randmask = randmap <= temp
+            action = action * (1 - randmask.float()) + randmask.float() * randchoice.unsqueeze(1)
+            reward = F.softmax(-1 * (l2diff - l2diff.mean(1).unsqueeze(1)) / l2diff.std(1,keepdim=True).clamp(1e-16,1),dim=1)
+            reward = reward.detach()
+            selection = probs.gather(1,action.long()).clamp(1e-16,1)
+            advantage = reward.gather(1,action.long())
+            #selectionloss = torch.mean(-1 * selection.log() * advantage)                               # random action selection
+            selectionloss = torch.mean(-1 * probs.gather(1, minidx.unsqueeze(1)).clamp(1e-16,1).log())  # cross entropy
+            #selectionloss = torch.mean(torch.abs(probs - reward))
+            #selectionloss.backward()
+            #self.agent.opt.step()
+
+            if self.model == 'RCAN':
+                loss_total = l2diff.mean()*0.1 + sisrloss*0.1 + selectionloss
+            else:
+                loss_total = l2diff.mean()*100 + sisrloss*100 + selectionloss
+            loss_total.backward()
+            [opt.step() for opt in self.SRoptimizers]
+            self.agent.opt.step()
+
+            # visualize super resolution result
+            SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
+            SR_result.requires_grad = False
+            for j, sr in enumerate(sisrs):
+                pred = sr * probs[:,j].unsqueeze(1)
+                SR_result += pred
+            sisrloss_total = sisrloss.mean() + selectionloss.mean()
+
+            diffmap = torch.nn.functional.softmax(-255 * (l2diff - torch.mean(l2diff)),dim=1)
+            bestmask = torch.nn.functional.one_hot(choice,len(sisrs)).permute(0,3,1,2)
+            predmask = torch.nn.functional.one_hot(action.squeeze(1).long(),len(sisrs)).permute(0,3,1,2)
+            target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
+
+            # CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING AND TENSORBOARD LOGGING
+            # logging is quite expensive task so we only do so every now and then
+            lr = self.SRoptimizers[-1].param_groups[0]['lr']
+            lr2 = self.agent.opt.param_groups[0]['lr']
+            if not(self.model == 'ESRGAN' or self.model == 'basic'):
+                SR_result = SR_result / 255
+                hrbatch = hrbatch / 255
+            iou = (choice == minidx).float().sum() / (choice.shape[0] * choice.shape[1] * choice.shape[2])
+            agent_iou.append(iou.item())
+            c1 = (choice == 0).float().mean()
+            c2 = (choice == 1).float().mean()
+            c3 = (choice == 2).float().mean()
+            print('\rdata/img/temp: {}/{}/{:.4f}| LR sr/ag: {:.7f}/{:.7f} | Agent Loss: {:.4f}, SISR Loss: {:.4f},  Total: {:.4f}| IOU: {:.4f} | c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
+                    .format(len(data),self.logger.step,temp,lr,lr2,selectionloss.item(),sisrloss.item(), sisrloss_total.item(), np.mean(agent_iou), c1.item(), c2.item(), c3.item()),end="\n")
+
+            # LOG AND SAVE THE INFORMATION
+            scalar_summaries = {'Loss/AgentLoss': selectionloss.item(), 'Loss/sisrloss_total': sisrloss_total.item(),'Loss/sisrloss': sisrloss.item(), 'Loss/IOU': iou, "choice/c1": c1.item(), "choice/c2": c2.item(), "choice/c3": c3.item()}
+            # hist_summaries = {'actions': probs[0].view(-1)[:1000], "choices": choice[0].view(-1)[:1000]}
+            img_summaries = {'sr/best': bestmask[0][:3], 'sr/sr': SR_result[0].clamp(0,1),'sr/targetmask': target[0][:3], 'sr/diffmap': diffmap[0][:3]}
+            self.logger.scalar_summary(scalar_summaries)
+            #self.logger.hist_summary(hist_summaries)
+            self.logger.image_summary(img_summaries)
+            if self.logger.step % 100 == 0:
+                with torch.no_grad():
+                    psnr,ssim,info = self.test.validateSet5(save=False,quick=False)
+                self.agent.model.train()
+                [model.train() for model in self.SRmodels]
+                if self.logger:
+                    self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
+                    mask = torch.from_numpy(info['choices']).float().permute(2,0,1) / 255.0
+                    best_mask = info['upperboundmask'].squeeze()
+                    worst_mask = info['lowerboundmask'].squeeze()
+                    hrimg = info['HR'].squeeze() / 255.0
+                    srimg = torch.from_numpy(info['weighted'] / 255.0).permute(2,0,1)
+                    self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask[:3]})
+                self.savemodels()
+            self.logger.incstep()
+
+            if np.mean(agent_iou) >= iou_threshold and len(agent_iou) >= miniter: break
+
+    # TRAINING REGIMEN
+    def train(self,alpha=0, beta=20):
         data = set(range(len(self.TRAINING_HRPATH)))
         data.remove(alpha)
         curriculum = [alpha]
-        self.optimize(curriculum)
+        #curriculum = list(range(len(self.TRAINING_HRPATH)))
 
+        self.optimize(curriculum,0.4)
         # main training loop
-        while True:
-            # sorted training items in descending order of difficulty
+        for i in count():
             difficulty = self.getDifficulty(data)
+            print("ADDED NEXT EASIEST")
+            np.save('runs/curriculum_' + str(i),np.array(difficulty))
             A = [a[0] for a in difficulty[-beta:]]
             curriculum += A
             [data.remove(a) for a in A]
-            self.optimize(curriculum)
+            self.optimize(curriculum,0.4)
 
 ########################################################################################################
 ########################################################################################################
 ########################################################################################################
 if __name__ == '__main__':
-
     sisr = SISR()
     sisr.train()
 

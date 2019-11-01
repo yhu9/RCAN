@@ -1,14 +1,9 @@
-# NATIVE IMPORTS
 import os
 import math
-import random
 from datetime import datetime
-
-# LIBRARIES
 import numpy as np
 from PIL import Image
 import cv2
-import torch
 
 ####################
 # miscellaneous
@@ -230,80 +225,3 @@ def calc_ssim(img1, img2):
             return ssim(np.squeeze(img1), np.squeeze(img2))
     else:
         raise ValueError('Wrong input image dimensions.')
-
-# TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
-def getTrainingPatches(LR,HR,args,transform=True):
-    patch_size = args.patchsize
-    stride = args.patchsize
-    lr = LR.copy()
-    hr = HR.copy()
-
-    # RANDOMLY FLIP AND ROTATE IMAGE
-    if transform:
-        bit1 = random.random() > 0.5
-        bit2 = random.random() > 0.5
-        bit3 = random.random() > 0.5
-        if bit1:
-            lr = np.rot90(lr)
-            hr = np.rot90(hr)
-        if bit2:
-            lr = np.flip(lr,axis=1)
-            hr = np.flip(hr,axis=1)
-        if bit3:
-            lr = np.flip(lr,axis=0)
-            hr = np.flip(hr,axis=0)
-
-    # ENSURE BOXES of size patchsize CAN FIT OVER ENTIRE IMAGE WITH REFLECTIVE BORDER OF AT LEAST PATCH_SIZE // 4 SO THAT WE
-    # DON'T LOSE ACCURACY DUE TO RECEPTIVE FIELD
-    h,w,d = lr.shape
-    top = patch_size//4
-    left = patch_size//4
-    bot = patch_size - (h % (patch_size//2))
-    right = patch_size - (w % (patch_size//2))
-    lr = np.pad(lr,pad_width=((top,bot),(left,right),(0,0)), mode='symmetric')       #symmetric padding to allow meaningful edges
-    lrh, lrw = lr.shape[:2]
-
-    h,w,d = hr.shape
-    top = (top * args.upsize)
-    left = (left * args.upsize)
-    bot = (bot * args.upsize)
-    right = (right * args.upsize)
-    hr = np.pad(hr,pad_width=((top,bot),(left,right),(0,0)),mode='symmetric')
-    hrh,hrw = hr.shape[:2]
-
-    lr = torch.from_numpy(lr).float().unsqueeze(0)
-    hr = torch.from_numpy(hr).float().unsqueeze(0)
-
-    # PATCH UP THE IMAGE
-    kh,kw = args.patchsize,args.patchsize # KERNEL SIZE
-    dh,dw = args.patchsize // 2,args.patchsize // 2 # STRIDE
-
-    lr = lr.unfold(1,kh,dh).unfold(2,kw,dw)
-    lr = lr.contiguous().view(-1,3,kh,kw)
-
-    hr = hr.unfold(1,kh*args.upsize,dh*args.upsize).unfold(2,kw*args.upsize,dw*args.upsize)
-    hr = hr.contiguous().view(-1,3,kh*args.upsize,kw*args.upsize)
-
-    info = hrh,hrw
-    return lr,hr,info
-
-def recombine(X,h1,w1,h2,w2):
-
-    b,d,patchsize,_ = X.shape
-    stride = patchsize//2
-
-    X[:,:,:patchsize//4] *= 0
-    X[:,:,:,:patchsize//4] *= 0
-    X[:,:,-patchsize//4:] *= 0
-    X[:,:,:,-patchsize//4:] *= 0
-
-    tmp = X.view(-1,3,patchsize**2).permute(1,2,0)
-    img = torch.nn.functional.fold(tmp,(h2,w2),(patchsize,patchsize),1,0,(stride,stride))
-    top = patchsize // 4
-    left = patchsize // 4
-    bot = h2 - h1 - top
-    right = w2 - w1 - left
-    img = img[:,0,top:-bot,left:-right].cpu().permute(1,2,0).numpy()
-
-    return img
-

@@ -10,7 +10,7 @@ parser.add_argument('--template', default='.',
 
 #MASA'S TRAINING SPECIFICATIONS
 parser.add_argument("--srmodel_path",default="../model/RCAN_BIX4.pt", help='Path to the SR model')
-parser.add_argument("--batch_size",default=32, type=int,help='Batch Size')
+parser.add_argument("--batch_size",default=4, type=int,help='Batch Size')
 parser.add_argument("--gamma",default=.9, help='Gamma Value for RL algorithm')
 parser.add_argument("--eps_start",default=.90, help='Epsilon decay start value')
 parser.add_argument("--eps_end",default=0.10, help='Epsilon decay end value')
@@ -19,13 +19,13 @@ parser.add_argument("--target_update",default=20, help='Target network update ti
 parser.add_argument("--action_space",default=3,type=int, help='Action Space size')
 parser.add_argument("--memory_size",default=100000, help='Memory Size')
 parser.add_argument("--model_dir",default="",help='specify if restarting training, or doing testing',required=False)
+#parser.add_argument("--training_lrpath",default="LR")
 parser.add_argument("--training_lrpath",default="../../../data/DIV2K_train_LR_bicubic/X4")
 parser.add_argument("--training_hrpath",default="../../../data/DIV2K_train_HR")
-#parser.add_argument("--training_lrpath",default="LR")
+parser.add_argument("--testing_path",default="../../../data/DIV2K_train_LR_bicubic/X4")
 #parser.add_argument("--training_lrpath",default="../../../data/testing/LRBI/Starfish/x4")
 #parser.add_argument("--training_hrpath",default="../../../data/testing/HR/Starfish")
-parser.add_argument("--testing_path",default="../../../data/DIV2K_train_LR_bicubic/X4")
-parser.add_argument("--patchsize",default=16,type=int,help="patch size to super resolve")
+parser.add_argument("--patchsize",default=32,type=int,help="patch size to super resolve")
 parser.add_argument("--loadagent",default=False, action='store_const',const=True)
 parser.add_argument("--learning_rate",default=0.01,help="Learning rate of Super Resolution Models")
 parser.add_argument("--upsize", default=4,help="Upsampling size of the network")
@@ -39,7 +39,7 @@ parser.add_argument("--step",default=0,type=int,help='determine where to start t
 parser.add_argument("--basicpath", default="../model/sisrbasic.pth", help='path to single RRDB block super resolution model')
 parser.add_argument('--model', default='basic', help='model name')
 
-# MASA'S TESTING SPECIFICATIONS
+#MASA'S TESTING SPECIFICATIONS
 parser.add_argument("--dataroot",default="../../../data/testing")
 parser.add_argument("--down_method",default="BI",help='method of downsampling. [BI|BD]')
 parser.add_argument("--evaluate",default=False,action='store_const',const=True,help='Evaluate a model with validation sets')
@@ -94,6 +94,8 @@ parser.add_argument('--noise', type=str, default='.',
                     help='Gaussian noise std.')
 parser.add_argument('--chop', action='store_true',
                     help='enable memory-efficient forward')
+
+# Model specifications
 
 parser.add_argument('--act', type=str, default='relu',
                     help='activation function')

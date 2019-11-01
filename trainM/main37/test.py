@@ -40,7 +40,6 @@ class Tester():
             self.SRmodels = SRmodels
 
         downsample_method = args.down_method
-        self.args=args
         self.hr_rootdir = os.path.join(args.dataroot,'HR')
         self.lr_rootdir = os.path.join(args.dataroot,"LR" + downsample_method)
         self.validationsets = testset
@@ -167,116 +166,67 @@ class Tester():
 
         return SR_result,choices
 
-    # quick version of evaluate bounds
-    def evaluate_bounds(self, lr, hr):
-        self.agent.model.eval()
+    # EVALUATE THE INPUT AND GET SR RESULT
+    def evaluateBounds(self,lr,hr):
+        #FORMAT THE INPUT
+        h,w,d = lr.shape
+        lr = torch.FloatTensor(lr).to(self.device)
+        hr = torch.FloatTensor(hr).to(self.device)
+        lr = lr.permute((2,0,1)).unsqueeze(0)
+        hr = hr.permute((2,0,1)).unsqueeze(0)
         if self.model == 'ESRGAN' or self.model == 'basic':
             lr = lr / 255.0
 
-        #FORMAT THE INPUT
-        h1, w1, d1 = hr.shape
-        LR, HR, info = util.getTrainingPatches(lr, hr, self.args, transform=False)
-        h2, w2 = info
-        LR = LR.to(self.device)
-        HR = HR.to(self.device)
-
         #GET EACH SR RESULT
-        choices = self.agent.model(LR)
-        maxval, maxarg = choices.max(dim=1)
-        minval, minarg = choices.min(dim=1)
-
-        sisrs = []
-        l2 = []
+        bestchoice = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        worstchoice = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        weightedchoice = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        SR_result = []
         for i, sisr in enumerate(self.SRmodels):
-            sr = sisr(LR)
-            sisrs.append(sr)
-            l2.append((sr - HR).pow(2).mean(dim=1).mean(dim=1).mean(dim=1))
-        l2diff = torch.stack(l2,dim=1)
-        sisrs = torch.stack(sisrs,dim=1)
-        mask = torch.zeros(sisrs.shape).to(self.device)
-        mask[:,0,0] += 255
-        mask[:,1,1] += 255
-        mask[:,2,2] += 255
+            sr = sisr(lr)
+            if self.model == 'ESRGAN' or self.model == 'basic':
+                sr = sr * 255.0
+            SR_result.append(sr)
+        sr_results = torch.cat(SR_result,dim=1)
+        choices = self.agent.model(sr_results)
 
-        _, optimal_idx = l2diff.min(dim=1)
-        _, worst_idx = l2diff.max(dim=1)
-        sr_opt = sisrs[torch.arange(sisrs.size(0)),optimal_idx]
+        lowchoice, idxlow = choices.min(dim=1)
+        maxchoice, idxhigh = choices.max(dim=1)
+        l2diff = []
+        for i,sr in enumerate(SR_result):
+            l2 = (sr - hr).pow(2).mean(dim=1)
+            l2diff.append(l2)
+            masklow = idxlow == i
+            maskhigh = idxhigh == i
+            weightedchoice += sr * choices[:,i]
+            worstchoice += sr * masklow.float()
+            bestchoice += sr * maskhigh.float()
 
-        # GATHER SUPER RESOLUTION BASED ON CHOICES
-        optimal = sisrs[torch.arange(sisrs.size(0)),optimal_idx]
-        worst = sisrs[torch.arange(sisrs.size(0)),worst_idx]
-        sr = sisrs[torch.arange(sisrs.size(0)),maxarg]
-        minsisr = sisrs[torch.arange(sisrs.size(0)),minarg]
-        weight = torch.zeros(sr.shape).to(self.device)
-        for i,w in enumerate(choices):
-            for j,c in enumerate(w):
-                weight[i,j] = c
+        #GET EUCLIDEAN DISTANCE FOR EACH PIXEL
+        l2diff = torch.stack(l2diff,dim=1)
+        minvals,idxlow = l2diff.min(dim=1)
+        maxvals,idxhigh= l2diff.max(dim=1)
+        upperboundmask = torch.nn.functional.one_hot(idxlow,len(SR_result)).permute(0,3,1,2)
+        lowerboundmask = torch.nn.functional.one_hot(idxhigh,len(SR_result)).permute(0,3,1,2)
 
-        # GET DECISION MASKS
-        optimalchoice = mask[torch.arange(sisrs.size(0)),optimal_idx]
-        worstchoice = mask[torch.arange(sisrs.size(0)),worst_idx]
-        maxchoice = mask[torch.arange(sisrs.size(0)),maxarg]
-        minchoice = mask[torch.arange(sisrs.size(0)),minarg]
-
-        # RECOMBINE RESULTS
-        optimal = util.recombine(optimal,h1,w1,h2,w2)
-        worst = util.recombine(worst,h1,w1,h2,w2)
-        sr = util.recombine(sr,h1,w1,h2,w2)
-        minsisr = util.recombine(minsisr,h1,w1,h2,w2)
-        optimalchoice = util.recombine(optimalchoice,h1,w1,h2,w2)
-        worstchoice = util.recombine(worstchoice,h1,w1,h2,w2)
-        maxchoice = util.recombine(maxchoice,h1,w1,h2,w2)
-        minchoice = util.recombine(minchoice,h1,w1,h2,w2)
-        mask = util.recombine(weight,h1,w1,h2,w2)
+        #GET LOWER AND UPPER BOUND IMAGE
+        lowerboundImg = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        upperboundImg = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
+        for i in range(len(SR_result)):
+            masklow = idxlow == i
+            maskhigh = idxhigh == i
+            lowerboundImg += maskhigh.float().unsqueeze(1) * SR_result[i]
+            upperboundImg += masklow.float().unsqueeze(1) * SR_result[i]
 
         #FORMAT THE OUTPUT
-        if self.model == 'ESRGAN' or self.model == 'basic':
-            optimal = optimal.clip(0,1) * 255.0
-            worst = worst.clip(0,1) * 255.0
-            sr = sr.clip(0,1) * 255.0
-            minsisr = minsisr.clip(0,1) * 255.0
-        else:
-            optimal = optimal.clip(0,255)
-            worst = worst.clip(0,255)
-            sr = sr.clip(0,255)
-            minsisr = minsisr.clip(0,255)
+        lowerboundImg = lowerboundImg.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        upperboundImg = upperboundImg.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        bestchoice = bestchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        worstchoice = worstchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        weightedchoice = weightedchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        choices = choices.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy() * 255
 
-        maxchoice = maxchoice.clip(0,255)
-        minchoice = minchoice.clip(0,255)
-        worstchoice = worstchoice.clip(0,255)
-        optimalchoice = optimalchoice.clip(0,255)
-        mask = mask * 255.0
-
-        info = {'HR': hr,'min': minsisr, 'max': sr, 'worst': worst, 'optimal': optimal, 'optimalchoice': optimalchoice, 'worstchoice': worstchoice, 'maxchoice': maxchoice, 'minchoice': minchoice, 'choices': choices, 'mask': mask}
-
-        return info
-
-    #EVALUATE THE INPUT AND GET SR RESULT
-    def getIOU(self,lr,hr):
-        if self.model == 'ESRGAN' or self.model == 'basic':
-            lr = lr / 255.0
-            hr = hr / 255.0
-        #FORMAT THE INPUT
-        h1,w1,d1 = hr.shape
-        LR,HR,info = util.getTrainingPatches(lr,hr,self.args,transform=False)
-        h2,w2 = info
-
-        LR = LR.to(self.device)
-        HR = HR.to(self.device)
-
-        #GET EACH SR RESULT
-        choices = self.agent.model(LR)
-        maxval,maxarg = choices.max(dim=1)
-        minval,minarg = choices.min(dim=1)
-
-        l2 = []
-        for i, sisr in enumerate(self.SRmodels):
-            sr = sisr(LR)
-            l1.append((sr - HR).pow(2).mean(dim=1).mean(dim=1).mean(dim=1))
-        l2diff = torch.stack(l2,dim=1)
-
-        _,optimal_idx = l2diff.min(dim=1)
-        _,predicted_idx = choices.max(dim=1)
+        info = {'HR': hr,'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'choices': choices, 'upperboundmask': upperboundmask, 'lowerboundmask': lowerboundmask}
 
         return info
 
@@ -311,22 +261,24 @@ class Tester():
                 lr = imageio.imread(lr_file)
 
                 #EVALUATE AND GATHER STATISTICS
-                selection_details = self.evaluate_bounds(lr,hr)
-                psnr_best, ssim_best = self.getstats(selection_details['max'],hr)
-                psnr_low, ssim_low = self.getstats(selection_details['min'],hr)
-                psnr_worst, ssim_worst = self.getstats(selection_details['worst'],hr)
-                psnr_optimal, ssim_optimal = self.getstats(selection_details['optimal'],hr)
+                selection_details = self.evaluateBounds(lr,hr)
+                psnr_low, ssim_low = self.getstats(selection_details['upper'],hr)
+                psnr_high,ssim_high= self.getstats(selection_details['lower'],hr)
+                psnr_best,ssim_best= self.getstats(selection_details['best'],hr)
+                psnr_worst,ssim_worst = self.getstats(selection_details['worst'],hr)
                 choices = selection_details['choices']
+                sr = selection_details['weighted']
+                psnr,ssim = self.getstats(sr,hr)
 
                 selection_details['file'] = os.path.basename(lr_file)
-                print(f"worst mse: {psnr_worst:.3f}/{ssim_worst:.3f} | optimal mse: {psnr_optimal:.3f}/{ssim_optimal:.3f} | best choice: {psnr_best:.3f}/{ssim_best:.3f} | bad choice: {psnr_low:.3f}/{ssim_low:.3f} | {selection_details['file']}")
-                scores[vset].append([psnr_worst,ssim_worst,psnr_optimal,ssim_optimal,psnr_best,ssim_best,psnr_low,ssim_low])
+                print(f"low mse: {psnr_low:.3f}/{ssim_low:.3f} | high mse: {psnr_high:.3f}/{ssim_high:.3f} | best choice: {psnr_best:.3f}/{ssim_best:.3f} | worst choice: {psnr_worst:.3f}/{ssim_worst:.3f} | psnr/ssim: {psnr:.3f}/{ssim:.3f} | {selection_details['file']}")
+                scores[vset].append([psnr,ssim,psnr_low,ssim_low,psnr_high,ssim_high,psnr_best,ssim_best,psnr_worst,ssim_worst])
 
                 #OPTIONAL THINGS TO DO
                 if quick: break
                 if save:
                     #save info for each file tested
-                    for method in ['min','max','worst','optimal','optimalchoice','worstchoice','maxchoice','minchoice','choices', 'mask']:
+                    for method in ['best','worst','weighted','lower','upper','variance','choices']:
                         filename = os.path.join('runs',method + '_' + os.path.basename(lr_file))
                         imageio.imwrite(filename,selection_details[method].astype(np.uint8))
                         if method == 'choices':
@@ -334,18 +286,21 @@ class Tester():
                             plt.savefig(filename[:-4] + '_hist.png')
                             plt.clf()
 
-            mu_psnr_worst = np.mean(np.array(scores[vset])[:,0])
-            mu_ssim_worst = np.mean(np.array(scores[vset])[:,1])
-            mu_psnr_optimal = np.mean(np.array(scores[vset])[:,2])
-            mu_ssim_optimal = np.mean(np.array(scores[vset])[:,3])
-            mu_psnr_best = np.mean(np.array(scores[vset])[:,4])
-            mu_ssim_best = np.mean(np.array(scores[vset])[:,5])
-            mu_psnr_low = np.mean(np.array(scores[vset])[:,6])
-            mu_ssim_low = np.mean(np.array(scores[vset])[:,7])
+            mu_psnr = np.mean(np.array(scores[vset])[:,0])
+            mu_ssim = np.mean(np.array(scores[vset])[:,1])
+            mu_psnr_low = np.mean(np.array(scores[vset])[:,2])
+            mu_ssim_low = np.mean(np.array(scores[vset])[:,3])
+            mu_psnr_high = np.mean(np.array(scores[vset])[:,4])
+            mu_ssim_high = np.mean(np.array(scores[vset])[:,5])
+            mu_psnr_best = np.mean(np.array(scores[vset])[:,6])
+            mu_ssim_best = np.mean(np.array(scores[vset])[:,7])
+            mu_psnr_worst = np.mean(np.array(scores[vset])[:,8])
+            mu_ssim_worst = np.mean(np.array(scores[vset])[:,9])
             print( "-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
                     )
-            print(f"worst mse: {mu_psnr_worst:.3f}/{mu_ssim_worst:.3f} | optimal mse: {mu_psnr_optimal:.3f}/{mu_ssim_optimal:.3f} | best choice: {mu_psnr_best:.3f}/{mu_ssim_best:.3f} | bad choice: {mu_psnr_low:.3f}/{mu_ssim_low:.3f} | {selection_details['file']}")
-        return mu_psnr_best,mu_ssim_best,selection_details
+            print(f"MEANS: low MSE: {mu_psnr_low:.3f}/{mu_ssim_low:.3f} | high MSE: {mu_psnr_high:.3f}/{mu_ssim_high:.3f} | best choice {mu_psnr_best:.3f}/{mu_ssim_worst:.3f} | worst choice {mu_psnr_worst:.3f}/{mu_ssim_worst:.3f} | psnr/ssim: {mu_psnr:.3f}/{mu_ssim:.3f}")
+
+        return mu_psnr,mu_ssim,selection_details
 
     #TEST A MODEL ON ALL DATASETS
     def validate(self,save=True,quick=False):
