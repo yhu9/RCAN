@@ -240,7 +240,7 @@ class Tester():
         scores = {}
         [model.eval() for model in self.SRmodels]
         self.agent.model.eval()
-        self.validationsets = ['Set5']
+        self.validationsets = ['Starfish']
 
         for vset in self.validationsets:
             scores[vset] = []

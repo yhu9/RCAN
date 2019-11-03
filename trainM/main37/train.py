@@ -277,50 +277,40 @@ class SISR():
 
             # GET SISR RESULTS FROM EACH MODEL
             sisrs = []
-            l2diff = []
             for j, sisr in enumerate(self.SRmodels):
-                self.SRoptimizers[j].zero_grad()
                 sr_pred = sisr(lrbatch)
-                #diff = (sr_pred-hrbatch).pow(2).sum(dim=1)     # l2 loss
-                diff = torch.abs(sr_pred-hrbatch).sum(dim=1)    # l1 loss
                 sisrs.append(sr_pred)
-                l2diff.append(diff)
+
             sr_results = torch.cat(sisrs,dim=1)
+            probs = self.agent.model(sr_results)
+            l2diff = []
+            #loss = 0
+            loss = torch.zeros(self.batch_size,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).to(self.device)
+            for j, sr in enumerate(sisrs):
+                self.SRoptimizers[j].zero_grad()
+                diff = (sr-hrbatch).pow(2).mean(dim=1)     # l2 loss
+                # diff = torch.abs(sr_pred-hrbatch).mean(dim=1)    # l1 loss
+                loss += diff * probs[:,j]
+                l2diff.append(diff)
 
             # get optimal assignment
             l2diff = torch.stack(l2diff, dim=1)
             minval, minidx = l2diff.min(dim=1)
 
-            # loss optimal
-            sisrloss = minval.mean()
-            #sisrloss.backward()
-            #[opt.step() for opt in self.SRoptimizers]
+            # loss sisr
+            #sisrloss = minval.mean()
+            sisrloss = loss.mean()
 
             # loss selection
-            # MAKE AN ACTION WITH RANDOM ACTIONS AND DECAY TOWARDS GREEDY
             self.agent.opt.zero_grad()
-            probs = self.agent.model(sr_results)
             choice = probs.max(dim=1)[1]
             action = choice.unsqueeze(1)
-            temp = 0.05 + (1 - 0.05) * math.exp(-self.logger.step * (1/1e3))
-            randmap = torch.rand(action.shape).to(self.device)
-            randchoice = torch.rand(probs.shape).max(dim=1)[1].to(self.device)
-            randmask = randmap <= temp
-            action = action * (1 - randmask.float()) + randmask.float() * randchoice.unsqueeze(1)
-            reward = F.softmax(-1 * (l2diff - l2diff.mean(1).unsqueeze(1)) / l2diff.std(1,keepdim=True).clamp(1e-16,1),dim=1)
-            reward = reward.detach()
-            selection = probs.gather(1,action.long()).clamp(1e-16,1)
-            advantage = reward.gather(1,action.long())
-            #selectionloss = torch.mean(-1 * selection.log() * advantage)                               # random action selection
             selectionloss = torch.mean(-1 * probs.gather(1, minidx.unsqueeze(1)).clamp(1e-16,1).log())  # cross entropy
-            #selectionloss = torch.mean(torch.abs(probs - reward))
-            #selectionloss.backward()
-            #self.agent.opt.step()
 
             if self.model == 'RCAN':
-                loss_total = l2diff.mean()*0.1 + sisrloss*0.1 + selectionloss
+                loss_total = l2diff.mean()*0.1 + sisrloss*0.1 + selectionloss * 255
             else:
-                loss_total = l2diff.mean()*100 + sisrloss*100 + selectionloss
+                loss_total = l2diff.mean() + sisrloss + selectionloss
             loss_total.backward()
             [opt.step() for opt in self.SRoptimizers]
             self.agent.opt.step()
@@ -350,8 +340,8 @@ class SISR():
             c1 = (choice == 0).float().mean()
             c2 = (choice == 1).float().mean()
             c3 = (choice == 2).float().mean()
-            print('\rdata/img/temp: {}/{}/{:.4f}| LR sr/ag: {:.7f}/{:.7f} | Agent Loss: {:.4f}, SISR Loss: {:.4f},  Total: {:.4f}| IOU: {:.4f} | c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
-                    .format(len(data),self.logger.step,temp,lr,lr2,selectionloss.item(),sisrloss.item(), sisrloss_total.item(), np.mean(agent_iou), c1.item(), c2.item(), c3.item()),end="\n")
+            print('\rdata/img: {}/{} | LR sr/ag: {:.7f}/{:.7f} | Agent Loss: {:.4f}, SISR Loss: {:.4f},  Total: {:.4f}| IOU: {:.4f} | c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
+                    .format(len(data),self.logger.step,lr,lr2,selectionloss.item(),sisrloss.item(), sisrloss_total.item(), np.mean(agent_iou), c1.item(), c2.item(), c3.item()),end="\n")
 
             # LOG AND SAVE THE INFORMATION
             scalar_summaries = {'Loss/AgentLoss': selectionloss.item(), 'Loss/sisrloss_total': sisrloss_total.item(),'Loss/sisrloss': sisrloss.item(), 'Loss/IOU': iou, "choice/c1": c1.item(), "choice/c2": c2.item(), "choice/c3": c3.item()}
@@ -382,10 +372,10 @@ class SISR():
     def train(self,alpha=0, beta=20):
         data = set(range(len(self.TRAINING_HRPATH)))
         data.remove(alpha)
-        curriculum = [alpha]
-        #curriculum = list(range(len(self.TRAINING_HRPATH)))
+        #curriculum = [alpha]
+        curriculum = list(range(len(self.TRAINING_HRPATH)))
 
-        self.optimize(curriculum,0.4)
+        self.optimize(curriculum,1.0)
         # main training loop
         for i in count():
             difficulty = self.getDifficulty(data)
@@ -394,7 +384,7 @@ class SISR():
             A = [a[0] for a in difficulty[-beta:]]
             curriculum += A
             [data.remove(a) for a in A]
-            self.optimize(curriculum,0.4)
+            self.optimize(curriculum,0.3)
 
 ########################################################################################################
 ########################################################################################################

@@ -106,6 +106,7 @@ class SISR():
                 print('continuing training')
             elif args.random:
                 print('random init')
+                model.apply(init_weights)
             elif args.model == 'ESRGAN':
                 model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
             elif args.model == 'RCAN':
@@ -304,9 +305,7 @@ class SISR():
             if self.model == 'RCAN':
                 sisrloss_total = sisrloss.mean() + selectionloss.mean() * 255
             else:
-                sisrloss_total = sisrloss.mean()*100 + selectionloss.mean()
-            # sisrloss_total = sisrloss.mean()
-            # sisrloss_total = torch.mean((SR_result - hrbatch).pow(2).mean(1))
+                sisrloss_total = sisrloss.mean()*1000
             sisrloss_total.backward()
             [opt.step() for opt in self.SRoptimizers]
             self.agent.opt.step()
