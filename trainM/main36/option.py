@@ -36,8 +36,12 @@ parser.add_argument("--finetune",default=True,action='store_const',const=False)
 parser.add_argument("--name", required=True, help='Name to give this training session')
 parser.add_argument("--ESRGAN_PATH",default="../model/RRDB_ESRGAN_x4.pth",help='path to ESRGAN')
 parser.add_argument("--step",default=0,type=int,help='determine where to start training at')
-parser.add_argument("--basicpath", default="../model/sisrbasic.pth", help='path to single RRDB block super resolution model')
+parser.add_argument("--basicpath_d1", default="../model/basic-d1.pth", help='path to single RRDB block super resolution model with depth d1')
+parser.add_argument("--basicpath_d2", default="../model/basic-d2.pth", help='path to single RRDB block super resolution model with depth d2')
+parser.add_argument("--basicpath_d4", default="../model/basic-d4.pth", help='path to single RRDB block super resolution model with depth d4')
+parser.add_argument("--basicpath_d8", default="../model/basic-d8.pth", help='path to single RRDB block super resolution model with depth d8')
 parser.add_argument('--model', default='basic', help='model name')
+parser.add_argument("--d", default=1, type=int, help="depth of basic network")
 
 #MASA'S TESTING SPECIFICATIONS
 parser.add_argument("--dataroot",default="../../../data/testing")

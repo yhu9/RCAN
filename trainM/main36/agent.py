@@ -10,50 +10,18 @@ from collections import OrderedDict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.models as models
+#import torchvision.models as models
+#import deeplabv3_resnet50 as models
 
 # custom imports
 import RRDBNet_arch as RRDB
+import unet_model
+
 
 #######################################################################################################
 #######################################################################################################
-
-class SRSmall(nn.Module):
-    def __init__(self, channel=3, upsize=4, k=8):
-
-        self.head = torch.nn.Sequential(
-                torch.nn.Conv2d(channel,32,3,1,1),
-                torch.nn.ReLU()
-                )
-
-        self.block1 = torch.nn.Sequential(
-                torch.nn.Conv2d(32,k,3,1,1),
-                torch.nn.ReLU()
-                )
-        self.block2 = torch.nn.Sequential(
-                torch.nn.Conv2d(32,k,3,1,1),
-                torch.nn.ReLU()
-                )
-        self.block3 = torch.nn.Sequential(
-                torch.nn.Conv2d(32,k,3,1,1),
-                torch.nn.ReLU(),
-                )
-        self.block4 = torch.nn.Conv2d(32+3*k,32,1,1)
-
-        self.tail = torch.nn.Sequential(
-                torch.nn.Conv2d(channel,32,3,1,1),
-                torch.nn.ReLU()
-                )
-
-    def forward(self,x):
-        x = self.head(x)
-        x = torch.cat((x,self.block1(x)),1)
-        x = torch.cat((x,self.block2(x)),1)
-        x = torch.cat((x,self.block3(x)),1)
-        x = self.block4(x) + x[:,:32]
-
 #######################################################################################################
-#######################################################################################################
+
 #DENSE NET ARCHITECTURE WITHOUT BATCH NORMALIZATION
 class DenseBlock(nn.Module):
     def __init__(self,channel_in,k):
@@ -66,19 +34,19 @@ class DenseBlock(nn.Module):
 
         # CREATE OUR DENSEBLOCK WHICH ADDS GROWTH FEATURE CHANNELS TO GLOBAL
         self.block1 = torch.nn.Sequential(
-                torch.nn.Conv2d(channel_in,k,3,1,1),
+                torch.nn.Conv2d(channel_in,k,5,1,2,bias=False),
                 torch.nn.ReLU()
                 )
         self.block2 = torch.nn.Sequential(
-                torch.nn.Conv2d(channel_in + 1*k,k,3,1,1),
+                torch.nn.Conv2d(channel_in + 1*k,k,5,1,2,bias=False),
                 torch.nn.ReLU()
                 )
         self.block3 = torch.nn.Sequential(
-                torch.nn.Conv2d(channel_in + 2*k,k,3,1,1),
+                torch.nn.Conv2d(channel_in + 2*k,k,5,1,2,bias=False),
                 torch.nn.ReLU()
                 )
         self.block4 = torch.nn.Sequential(
-                torch.nn.Conv2d(channel_in + 3*k,channel_in,3,1,1),
+                torch.nn.Conv2d(channel_in + 3*k,channel_in,5,1,2,bias=False),
                 torch.nn.ReLU()
                 )
 
@@ -95,21 +63,21 @@ class Model(nn.Module):
     def __init__(self,k):
         super(Model,self).__init__()
 
-        #self.SegNet = models.segmentation.fcn_resnet50(pretrained=False,num_classes=48)
-        #self.SegNet = models.segmentation.deeplabv3_resnet101(pretrained=False,num_classes=160)
+        #self.SegNet = models.segmentation.fcn_resnet101(pretrained=True,num_classes=21)
+        #self.SegNet = models.deeplabv3_resnet50(pretrained=False,num_classes=k)
 
         self.first = torch.nn.Sequential(
-                torch.nn.Conv2d(k*3,36,3,1,1)
+                torch.nn.Conv2d(k*3,64,5,1,2,bias=False)
                 )
 
-        self.db1 = DenseBlock(36,12)
-        self.db2 = DenseBlock(36,12)
-        self.db3 = DenseBlock(36,12)
+        self.db1 = DenseBlock(64,24)
+        self.db2 = DenseBlock(64,24)
+        self.db3 = DenseBlock(64,24)
 
         self.final = torch.nn.Sequential(
-                torch.nn.Conv2d(36,36,3,1,1),
+                torch.nn.Conv2d(64,64,5,1,2,bias=False),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(36,k,3,1,1),
+                torch.nn.Conv2d(64,k,5,1,2,bias=False),
                 torch.nn.ReLU(),
                 torch.nn.Softmax(dim=1)
                 )
@@ -117,6 +85,7 @@ class Model(nn.Module):
     #FORWARD FUNCTION
     def forward(self,x):
         #x = self.SegNet(x)['out']
+        #x = F.softmax(x,dim=1)
         x = self.first(x)
         x = self.db1(x)
         x = self.db2(x)
@@ -134,6 +103,7 @@ class Agent():
             if isinstance(m,nn.Linear) or isinstance(m,nn.Conv2d):
                 torch.nn.init.xavier_uniform_(m.weight.data)
                 m.bias.data.fill_(0.01)
+
         #INITIALIZE HYPER PARAMS
         self.device = args.device
         self.ACTION_SPACE = args.action_space
@@ -147,15 +117,16 @@ class Agent():
             self.TARGET_UPDATE = args.target_update
 
         #INITIALIZE THE MODELS
-        self.model = Model(self.ACTION_SPACE)
+        #self.model = Model(self.ACTION_SPACE)
+        self.model = unet_model.UNet(self.ACTION_SPACE)
         self.model.to(self.device)
         if chkpoint:
+            print('Agent Loaded at checkpoint!')
             self.model.load_state_dict(chkpoint['agent'])
-        else:
-            self.model.apply(init_weights)
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-4)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-3)
+        #self.opt = torch.optim.SGD(self.model.parameters(),lr=1e-3)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.5)
 
 #######################################################################################################

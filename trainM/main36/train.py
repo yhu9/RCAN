@@ -78,7 +78,8 @@ class SISR():
 
         if args.model_dir != "":
             loadedparams = torch.load(args.model_dir,map_location=self.device)
-            self.agent = agent.Agent(args,chkpoint=loadedparams)
+            #self.agent = agent.Agent(args,chkpoint=loadedparams)
+            self.agent = agent.Agent(args)
         else:
             self.agent = agent.Agent(args)
         self.SRmodels = []
@@ -88,7 +89,7 @@ class SISR():
 
             #CREATE THE ARCH
             if args.model == 'basic':
-                model = arch.RRDBNet(3,3,32,1,gc=8)
+                model = arch.RRDBNet(3,3,32,args.d,gc=8)
             elif args.model == 'ESRGAN':
                 model = arch.RRDBNet(3,3,64,23,gc=32)
             elif args.model == 'RCAN':
@@ -113,19 +114,29 @@ class SISR():
                 print('RCAN loaded!')
                 model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=True)
             elif args.model == 'basic':
-                model.load_state_dict(torch.load(args.basicpath),strict=True)
+                if args.d == 1:
+                    model.load_state_dict(torch.load(args.basicpath_d1),strict=True)
+                elif args.d == 2:
+                    model.load_state_dict(torch.load(args.basicpath_d2),strict=True)
+                elif args.d == 4:
+                    model.load_state_dict(torch.load(args.basicpath_d4),strict=True)
+                elif args.d == 8:
+                    model.load_state_dict(torch.load(args.basicpath_d8),strict=True)
+                else:
+                    print('no pretrained model available. Random initialization of basic block')
 
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
 
+            #self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
             self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
             scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],1000,gamma=0.5)
 
             self.schedulers.append(scheduler)
 
         #INCREMENT SCHEDULES TO THE CORRECT LOCATION
-        for i in range(args.step):
-            [s.step() for s in self.schedulers]
+        #for i in range(args.step):
+        #    [s.step() for s in self.schedulers]
 
     #TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
     def getTrainingPatches(self,LR,HR,transform=True):
@@ -284,6 +295,7 @@ class SISR():
                 sisrs.append(hr_pred)
             sr_results = torch.cat(sisrs,dim=1)
             probs = self.agent.model(sr_results)
+            choice_val, choice = probs.max(dim=1)
 
             # UPDATE BOTH THE SISR MODELS AND THE SELECTION MODEL ACCORDING TO THEIR LOSS
             SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
@@ -291,27 +303,33 @@ class SISR():
             sisrloss = torch.zeros(self.batch_size,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).to(self.device)
             for j, sr in enumerate(sisrs):
                 self.SRoptimizers[j].zero_grad()
-                diff = (sr-hrbatch).pow(2).sum(dim=1)
-                #diff = torch.abs(sr-hrbatch).mean(1)
+                #diff = (sr-hrbatch).pow(2).sum(dim=1)
+                diff = torch.abs(sr-hrbatch).sum(1)
                 sisrloss += probs[:,j] * diff
                 l2diff.append(diff)
                 pred = sr * probs[:,j].unsqueeze(1)
                 SR_result += pred
             l2diff = torch.stack(l2diff, dim=1)
+            diffmap = torch.nn.functional.softmax(-1 * (l2diff - torch.mean(l2diff)),dim=1)
             self.agent.opt.zero_grad()
             minval, minidx = l2diff.min(dim=1)
+            #selectionloss = -1 * probs.gather(1, minidx.unsqueeze(1)).clamp(1e-16).log() * diffmap.gather(1,minidx.unsqueeze(1)).detach()
             selectionloss = -1 * probs.gather(1, minidx.unsqueeze(1)).clamp(1e-16).log()
-            #sisrloss = torch.abs(SR_result - hrbatch).mean()
+            sisrloss2 = torch.abs(SR_result - hrbatch)
+            sisrloss = sisrloss.unsqueeze(1)
             if self.model == 'RCAN':
-                sisrloss_total = sisrloss.mean() + selectionloss.mean() * 255
+                sisrloss_total = minval.mean() + sisrloss2.mean() + selectionloss.mean() * 255
             else:
-                sisrloss_total = sisrloss.mean()*1000
+                alpha = 1000
+                #sisrloss_total = minval.mean()
+                #sisrloss_total = (minval.mean() + sisrloss2.mean()) * 10 + selectionloss.mean()     #main
+                #sisrloss_total = (minval.mean() + sisrloss.mean()) * 10 + selectionloss.mean()     #main
+                #sisrloss_total = sisrloss.mean()*alpha + selectionloss.mean()     # main36/debug-d4
+                sisrloss_total = (sisrloss + sisrloss2).mean()*alpha + selectionloss.mean()     # main36/debug-d4
+                #sisrloss_total = (sisrloss + selectionloss + sisrloss2).mean()
             sisrloss_total.backward()
             [opt.step() for opt in self.SRoptimizers]
             self.agent.opt.step()
-            [sched.step() for sched in self.schedulers]
-
-            minval, minidx = l2diff.min(dim=1)
 
             # something for the future probably ???
             #probs = self.agent.model(sr_results.detach())
@@ -326,7 +344,6 @@ class SISR():
             #loss2.backward()
             #self.agent.opt.step()
 
-            diffmap = torch.nn.functional.softmax(-255 * (l2diff - torch.mean(l2diff)),dim=1)
             target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
             selectionloss = selectionloss.mean()
             sisrloss = sisrloss.mean()
@@ -337,7 +354,6 @@ class SISR():
             if not(self.model == 'ESRGAN' or self.model == 'basic'):
                 SR_result = SR_result / 255
                 hrbatch = hrbatch / 255
-            choice = probs.max(dim=1)[1]
             iou = (choice == minidx).float().sum() / (choice.shape[0] * choice.shape[1] * choice.shape[2])
             agent_iou.append(iou.item())
             c1 = (choice == 0).float().mean()
