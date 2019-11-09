@@ -27,7 +27,7 @@ import utility
 #OUR GENERAL TESTING CLASS WHICH CAN BE USED DURING TRAINING AND EVALUTATION
 #testset=['Set5','Set14','B100','Urban100','Manga109']
 class Tester():
-    def __init__(self,agent=None,SRmodels=None,args=args,testset=['Set5','Set14','B100']):
+    def __init__(self,agent=None,SRmodels=None,args=args,testset=['Set5','Set14','B100','Urban100', 'Manga109']):
         self.device = args.device
         if args.evaluate or args.ensemble or args.viewM or args.testbasic or args.baseline:
             if args.model_dir == "" and not args.baseline: print("TRAINED AGENT AND SISR MODELS REQUIRED TO EVALUATE OR VIEW ALLOCATION"); quit();
@@ -160,10 +160,9 @@ class Tester():
             SR_result += weighted_pred
 
         #FORMAT THE OUTPUT
-        SR_result = SR_result.clamp(0,255)
+        SR_result = SR_result.clamp(0,1)
         SR_result = SR_result.squeeze(0).permute(1,2,0).data.cpu().numpy()
         choices = choices.squeeze(0).permute(1,2,0).data.cpu().numpy()
-
         return SR_result,choices
 
     #EVALUATE THE INPUT AND GET SR RESULT
@@ -389,8 +388,8 @@ class Tester():
 
             #APPLY SISR ON EACH LR IMAGE AND GATHER RESULTS
             for hr_file,lr_file in zip(HR_files,LR_files):
-                hr = imageio.imread(hr_file)
-                lr = imageio.imread(lr_file)
+                hr = imageio.imread(hr_file) / 255.0
+                lr = imageio.imread(lr_file) / 255.0
 
                 sr1,c1 = self.evaluate(lr)
                 sr2,c2 = self.evaluate(np.rot90(lr,1).copy())

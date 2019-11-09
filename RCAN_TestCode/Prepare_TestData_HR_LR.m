@@ -1,7 +1,7 @@
 function Prepare_TestData_HR_LR()
 clear all; close all; clc
-path_original = './OriginalTestData';
-dataset  = {'Set5'};
+path_original = '../../../data';
+dataset  = {'DIV2K_train_HR'};
 ext = {'*.jpg', '*.png', '*.bmp'};
 
 degradation = 'BI'; % BI, BD, DN

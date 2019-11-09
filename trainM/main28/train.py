@@ -88,7 +88,12 @@ class SISR():
         for i in range(args.action_space):
 
             #CREATE THE ARCH
-            if args.model == 'ESRGAN':
+            if args.model == 'basic':
+                model = arch.RRDBNet(3,3,32,args.d,gc=8)
+                #pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+                #print(pytorch_total_params)
+                #quit()
+            elif args.model == 'ESRGAN':
                 model = arch.RRDBNet(3,3,64,23,gc=32)
             elif args.model == 'RCAN':
                 torch.manual_seed(args.seed)
@@ -110,6 +115,17 @@ class SISR():
             elif args.model == 'RCAN':
                 print('RCAN loaded!')
                 model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=True)
+            elif args.model == 'basic':
+                if args.d == 1:
+                    model.load_state_dict(torch.load(args.basicpath_d1),strict=True)
+                elif args.d == 2:
+                    model.load_state_dict(torch.load(args.basicpath_d2),strict=True)
+                elif args.d == 4:
+                    model.load_state_dict(torch.load(args.basicpath_d4),strict=True)
+                elif args.d == 8:
+                    model.load_state_dict(torch.load(args.basicpath_d8),strict=True)
+                else:
+                    print('no pretrained model available. Random initialization of basic block')
 
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
@@ -120,8 +136,8 @@ class SISR():
             self.schedulers.append(scheduler)
 
         #INCREMENT SCHEDULES TO THE CORRECT LOCATION
-        for i in range(args.step):
-            [s.step() for s in self.schedulers]
+        #for i in range(args.step):
+        #    [s.step() for s in self.schedulers]
 
     #TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
     def getTrainingPatches(self,LR,HR):
@@ -215,7 +231,7 @@ class SISR():
         softmaxfn = torch.nn.Softmax(dim=1)
 
         #random.shuffle(indices)
-        for c in range(maxepoch):
+        for c in count():
 
             #FOR EACH HIGH RESOLUTION IMAGE
             for n,idx in enumerate(indices):
@@ -233,7 +249,7 @@ class SISR():
                 patch_ids = list(range(len(LR)))
                 random.shuffle(patch_ids)
                 P = []
-                for step in range(5):
+                for step in range(1):
                     batch_ids = random.sample(patch_ids,self.batch_size)    #TRAIN ON A SINGLE IMAGE
                     labels = torch.Tensor(batch_ids).long()
                     lrbatch = LR[labels,:,:,:]
@@ -256,8 +272,8 @@ class SISR():
                     l1diff = []
                     for j, sr in enumerate(sisrs):
                         self.SRoptimizers[j].zero_grad()
-                        #loss = torch.mean(lossfn(sr,hrbatch) * probs[:,j].unsqueeze(1))
-                        #sisrloss += loss
+                        diff = torch.abs(sr-hrbatch).sum(1)
+                        sisrloss += torch.mean(probs[:,j] * diff)
                         l1 = torch.abs(sr-hrbatch).mean(dim=1)
                         l1diff.append(l1)
                         pred = sr * probs[:,j].unsqueeze(1)
@@ -265,31 +281,24 @@ class SISR():
                     self.agent.opt.zero_grad()
                     maxval,maxidx = probs.max(dim=1)
                     l1diff = torch.stack(l1diff,dim=1)
-                    #sisrloss.backward()
-                    #var = torch.var(l1diff,dim=1,keepdim=True)
-                    #sisrloss_total = sisrloss + torch.mean(var)
-                    sisrloss = lossfn(SR_result,hrbatch)
-                    sisrloss_total = sisrloss
+                    minval,minidx = l1diff.min(dim=1)
+                    sisrloss2 = lossfn(SR_result,hrbatch)
+                    selectionloss = torch.mean(probs.gather(1,minidx.unsqueeze(1)).clamp(1e-16,1).log()) * -1
+                    sisrloss_total = sisrloss2
+                    #sisrloss_total = sisrloss *100 + selectionloss
+                    #sisrloss_total = (sisrloss + sisrloss2)*1000 + selectionloss
+                    #sisrloss_total = sisrloss2 * 1000 + selectionloss + minval.mean() * 1000
                     sisrloss_total.backward()
                     [opt.step() for opt in self.SRoptimizers]
                     self.agent.opt.step()
 
                     diffmap = torch.nn.functional.softmax(-255 * (l1diff - torch.mean(l1diff)),dim=1)
-                    minval,minidx = l1diff.min(dim=1)
                     reward = (l1diff - l1diff.mean(1).unsqueeze(1)).detach() * -1
                     #reward = (reward - reward.mean())/ reward.std()
                     reward = reward.sign()
                     target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
                     #selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
                     selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)) * reward)
-
-                    #UPDATE OUR AGENT
-                    #self.agent.opt.zero_grad()
-                    #probs = self.agent.model(lrbatch)
-                    #maxval,maxidx = probs.max(dim=1)
-                    #selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
-                    #selectionloss.backward()
-                    #self.agent.opt.step()
 
                     #[sched.step() for sched in self.schedulers]
                     #self.agent.scheduler.step()
@@ -305,11 +314,11 @@ class SISR():
 
                     #LOG AND SAVE THE INFORMATION
                     scalar_summaries = {'Loss/AgentLoss': selectionloss, 'Loss/SISRLoss': sisrloss, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}
-                    hist_summaries = {'actions': probs[0].view(-1), "choices": choice[0].view(-1)}
+                    #hist_summaries = {'actions': probs[0].view(-1), "choices": choice[0].view(-1)}
                     #img_summaries = {'sr/mask': probs[0][:3], 'sr/sr': SR_result[0].clamp(0,1), 'sr/hr': hrbatch[0].clamp(0,1),'sr/targetmask': target[0][:3]}
                     img_summaries = {'sr/mask': probs[0][:3], 'sr/sr': SR_result[0].clamp(0,1),'sr/targetmask': target[0][:3], 'sr/diffmap': diffmap[0][:3]}
                     self.logger.scalar_summary(scalar_summaries)
-                    self.logger.hist_summary(hist_summaries)
+                    #self.logger.hist_summary(hist_summaries)
                     self.logger.image_summary(img_summaries)
                     if self.logger.step % 100 == 0:
                         with torch.no_grad():
@@ -323,11 +332,10 @@ class SISR():
                             worst_mask = info['lowerboundmask'].squeeze()
                             hrimg = info['HR'].squeeze()
                             srimg = torch.from_numpy(info['weighted']).permute(2,0,1).clamp(0,1)
-                            variance = torch.from_numpy(info['variance']).unsqueeze(0)
-                            print(f"max var: {torch.max(variance)}, min var: {torch.min(variance)}")
-                            variance = variance / torch.max(variance)
-                            advantage = info['advantage'].squeeze(1)
-                            self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask, 'Testing/var': variance, 'Testing/advantage':advantage})
+                            #variance = torch.from_numpy(info['variance']).unsqueeze(0)
+                            #print(f"max var: {torch.max(variance)}, min var: {torch.min(variance)}")
+                            #variance = variance / torch.max(variance)
+                            self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask})
                         self.savemodels()
                     self.logger.incstep()
 

@@ -89,7 +89,7 @@ class SISR():
 
             #CREATE THE ARCH
             if args.model == 'basic':
-                model = arch.RRDBNet(3,3,32,1,gc=8)
+                model = arch.RRDBNet(3,3,32,args.d,gc=8)
             elif args.model == 'ESRGAN':
                 model = arch.RRDBNet(3,3,64,23,gc=32)
             elif args.model == 'RCAN':
@@ -103,7 +103,7 @@ class SISR():
 
             #LOAD THE WEIGHTS
             if args.model_dir != "":
-                model.load_state_dict(loadedparams["sisr"+str(i)])
+                model.load_state_dict(loadedparams)
                 print('continuing training')
             elif args.random:
                 print('random init')
@@ -118,14 +118,14 @@ class SISR():
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
 
-            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
+            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
             scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],200,gamma=0.8)
 
             self.schedulers.append(scheduler)
 
         #INCREMENT SCHEDULES TO THE CORRECT LOCATION
-        for i in range(args.step):
-            [s.step() for s in self.schedulers]
+        #for i in range(args.step):
+        #    [s.step() for s in self.schedulers]
 
     #TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
     def getTrainingPatches(self,LR,HR):
@@ -291,7 +291,7 @@ class SISR():
             if np.mean(agent_iou) >= iou_threshold: break
 
     # train just a single sr model
-    def train_basic(self, maxepoch=50):
+    def train_basic(self, maxepoch=100):
 
         data = set(range(len(self.TRAINING_HRPATH)))
         for e in count():
@@ -329,7 +329,7 @@ class SISR():
                 self.logger.incstep()
             psnr,ssim = self.test.testbasic()
             self.logger.scalar_summary({'test/psnr': psnr, 'test/ssim': ssim})
-            torch.save(self.SRmodels[-1].state_dict(),"models/sisrbasic.pth")
+            torch.save(self.SRmodels[-1].state_dict(),"models/" + self.name + ".pth")
 
 ########################################################################################################
 ########################################################################################################

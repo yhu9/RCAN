@@ -10,13 +10,13 @@ parser.add_argument('--template', default='.',
 
 #MASA'S TRAINING SPECIFICATIONS
 parser.add_argument("--srmodel_path",default="../model/RCAN_BIX4.pt", help='Path to the SR model')
-parser.add_argument("--batch_size",default=8, type=int,help='Batch Size')
+parser.add_argument("--batch_size",default=3, type=int,help='Batch Size')
 parser.add_argument("--gamma",default=.9, help='Gamma Value for RL algorithm')
 parser.add_argument("--eps_start",default=.90, help='Epsilon decay start value')
 parser.add_argument("--eps_end",default=0.10, help='Epsilon decay end value')
 parser.add_argument("--eps_decay",default=10000, help='Epsilon decay fractional step size')
 parser.add_argument("--target_update",default=20, help='Target network update time')
-parser.add_argument("--action_space",default=3,type=int, help='Action Space size')
+parser.add_argument("--action_space",default=1,type=int, help='Action Space size')
 parser.add_argument("--memory_size",default=100000, help='Memory Size')
 parser.add_argument("--model_dir",default="",help='specify if restarting training, or doing testing',required=False)
 parser.add_argument("--training_lrpath",default="../../../data/DIV2K_train_LR_bicubic/X4")
@@ -35,6 +35,7 @@ parser.add_argument("--name", required=True, help='Name to give this training se
 parser.add_argument("--ESRGAN_PATH",default="../model/RRDB_PSNR_ESRGAN_x4.pth",help='path to ESRGAN')
 parser.add_argument("--step",default=0,type=int,help='determine where to start training at')
 parser.add_argument("--basicpath", default="../model/sisrbasic.pth", help='path to single RRDB block super resolution model')
+parser.add_argument("--d", default=1, type=int, help="depth of basic network")
 
 #MASA'S TESTING SPECIFICATIONS
 parser.add_argument("--dataroot",default="../../../data/testing")

@@ -10,7 +10,7 @@ parser.add_argument('--template', default='.',
 
 #MASA'S TRAINING SPECIFICATIONS
 parser.add_argument("--srmodel_path",default="../model/RCAN_BIX4.pt", help='Path to the SR model')
-parser.add_argument("--batch_size",default=3, type=int,help='Batch Size')
+parser.add_argument("--batch_size",default=5, type=int,help='Batch Size')
 parser.add_argument("--gamma",default=.9, help='Gamma Value for RL algorithm')
 parser.add_argument("--eps_start",default=.90, help='Epsilon decay start value')
 parser.add_argument("--eps_end",default=0.10, help='Epsilon decay end value')
@@ -23,7 +23,7 @@ parser.add_argument("--training_lrpath",default="../../../data/DIV2K_train_LR_bi
 #parser.add_argument("--training_lrpath",default="LR")
 parser.add_argument("--training_hrpath",default="../../../data/DIV2K_train_HR")
 parser.add_argument("--testing_path",default="../../../data/DIV2K_train_LR_bicubic/X4")
-parser.add_argument("--patchsize",default=28,type=int,help="patch size to super resolve")
+parser.add_argument("--patchsize",default=48,type=int,help="patch size to super resolve")
 parser.add_argument("--loadagent",default=False, action='store_const',const=True)
 parser.add_argument("--learning_rate",default=0.01,help="Learning rate of Super Resolution Models")
 parser.add_argument("--upsize", default=4,help="Upsampling size of the network")
@@ -34,6 +34,12 @@ parser.add_argument("--finetune",default=True,action='store_const',const=False)
 parser.add_argument("--name", required=True, help='Name to give this training session')
 parser.add_argument("--ESRGAN_PATH",default="../model/RRDB_ESRGAN_x4.pth",help='path to ESRGAN')
 parser.add_argument("--step",default=0,type=int,help='determine where to start training at')
+parser.add_argument("--basicpath_d1", default="../model/basic-d1.pth", help='path to single RRDB block super resolution model with depth d1')
+parser.add_argument("--basicpath_d2", default="../model/basic-d2.pth", help='path to single RRDB block super resolution model with depth d2')
+parser.add_argument("--basicpath_d4", default="../model/basic-d4.pth", help='path to single RRDB block super resolution model with depth d4')
+parser.add_argument("--basicpath_d8", default="../model/basic-d8.pth", help='path to single RRDB block super resolution model with depth d8')
+parser.add_argument('--model', default='basic', help='model name')
+parser.add_argument("--d", default=1, type=int, help="depth of basic network")
 
 #MASA'S TESTING SPECIFICATIONS
 parser.add_argument("--dataroot",default="../../../data/testing")
@@ -92,9 +98,6 @@ parser.add_argument('--chop', action='store_true',
                     help='enable memory-efficient forward')
 
 # Model specifications
-parser.add_argument('--model', default='RCAN',
-                    help='model name')
-
 parser.add_argument('--act', type=str, default='relu',
                     help='activation function')
 parser.add_argument('--pre_train', type=str, default='../model/RCAN_BIX4.pt',
