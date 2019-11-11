@@ -127,7 +127,7 @@ class DenseBlock(nn.Module):
 
 #OUR ENCODER DECODER NETWORK FOR MODEL SELECTION NETWORK
 class Model(nn.Module):
-    def __init__(self,k):
+    def __init__(self,k,upsize):
         super(Model,self).__init__()
 
         #ZERO OUT THE WEIGHTS
@@ -135,9 +135,6 @@ class Model(nn.Module):
             with torch.no_grad():
                 if type(m) == torch.nn.Conv2d:
                     m.weight.data *= 0.0
-
-        #self.SegNet = models.segmentation.fcn_resnet50(pretrained=False,num_classes=48)
-        #self.SegNet = models.segmentation.deeplabv3_resnet101(pretrained=False,num_classes=160)
 
         self.first = torch.nn.Sequential(
                 torch.nn.BatchNorm2d(3),
@@ -150,35 +147,35 @@ class Model(nn.Module):
         self.db4 = DenseBlock(32*4,8)
         #[b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
 
-        self.final = torch.nn.Sequential(
-                torch.nn.Upsample(scale_factor=2),
-                torch.nn.Conv2d(160,64,3,1,1),
-                torch.nn.BatchNorm2d(64),
-                torch.nn.PReLU(),
-                torch.nn.Upsample(scale_factor=2),
-                torch.nn.Conv2d(64,32,3,1,1),
-                torch.nn.BatchNorm2d(32),
-                torch.nn.PReLU(),
-                torch.nn.Conv2d(32,k,3,1,1)
-                #torch.nn.Softmax(dim=1)
-                )
-        '''
-        self.final = torch.nn.Sequential(
-                torch.nn.ReflectionPad2d(1),
-                torch.nn.Conv2d(160,64,3,1),
-                torch.nn.ConvTranspose2d(64,64,2,2),
-                torch.nn.BatchNorm2d(64),
-                torch.nn.ReLU(),
-                torch.nn.ReflectionPad2d(1),
-                torch.nn.Conv2d(64,32,3,1),
-                torch.nn.ConvTranspose2d(32,32,2,2),
-                torch.nn.BatchNorm2d(32),
-                torch.nn.ReLU(),
-                torch.nn.ReflectionPad2d(1),
-                torch.nn.Conv2d(32,k,3,1),
-                torch.nn.Softmax(dim=1)
-                )
-        '''
+        if upsize == 4:
+            self.final = torch.nn.Sequential(
+                    torch.nn.Upsample(scale_factor=2),
+                    torch.nn.Conv2d(160,64,3,1,1),
+                    torch.nn.BatchNorm2d(64),
+                    torch.nn.PReLU(),
+                    torch.nn.Upsample(scale_factor=2),
+                    torch.nn.Conv2d(64,32,3,1,1),
+                    torch.nn.BatchNorm2d(32),
+                    torch.nn.PReLU(),
+                    torch.nn.Conv2d(32,k,3,1,1)
+                    )
+        elif upsize == 8:
+            self.final = torch.nn.Sequential(
+                    torch.nn.Upsample(scale_factor=2),
+                    torch.nn.Conv2d(160,64,3,1,1),
+                    torch.nn.BatchNorm2d(64),
+                    torch.nn.PReLU(),
+                    torch.nn.Upsample(scale_factor=2),
+                    torch.nn.Conv2d(64,64,3,1,1),
+                    torch.nn.BatchNorm2d(64),
+                    torch.nn.PReLU(),
+                    torch.nn.Upsample(scale_factor=2),
+                    torch.nn.Conv2d(64,32,3,1,1),
+                    torch.nn.BatchNorm2d(32),
+                    torch.nn.PReLU(),
+                    torch.nn.Conv2d(32,k,3,1,1)
+                    )
+
         self.softmaxfn = torch.nn.Softmax(dim=1)
 
     #FORWARD FUNCTION
@@ -227,7 +224,7 @@ class Agent():
             self.memory = ReplayMemory(args.memory_size,device=self.device)
 
         #INITIALIZE THE MODELS
-        self.model = Model(self.ACTION_SPACE)
+        self.model = Model(self.ACTION_SPACE,args.upsize)
         self.model.to(self.device)
         if chkpoint:
             self.model.load_state_dict(chkpoint['agent'])

@@ -40,7 +40,7 @@ class Tester():
             self.SRmodels = SRmodels
 
         downsample_method = args.down_method
-        self.hr_rootdir = os.path.join(args.dataroot,'HR')
+        self.hr_rootdir = os.path.join(args.dataroot,'HR2')
         self.lr_rootdir = os.path.join(args.dataroot,"LR" + downsample_method)
         self.validationsets = testset
         self.upsize = args.upsize
@@ -59,7 +59,7 @@ class Tester():
             self.agent.model.eval()
         for i in range(args.action_space):
             if args.model == 'ESRGAN':
-                model = arch.RRDBNet(3,3,64,23,gc=32)
+                model = arch.RRDBNet(3,3,64,23,gc=32)   #
             elif args.model == 'RCAN':
                 torch.manual_seed(args.seed)
                 checkpoint = utility.checkpoint(args)
@@ -137,10 +137,10 @@ class Tester():
         SR = SR.squeeze(0).permute(1,2,0).data.cpu().numpy()
         if self.model == 'ESRGAN':
             SR = np.clip(SR * 255.0,0,255)
-            psnr,ssim = util.calc_metrics(hr,SR,4)
+            psnr,ssim = util.calc_metrics(hr,SR,self.upsize)
         elif self.model == 'RCAN':
             SR = np.clip(SR,0,255)
-            psnr,ssim = util.calc_metrics(hr,SR,4)
+            psnr,ssim = util.calc_metrics(hr,SR,self.upsize)
 
         return psnr,ssim,SR
 
@@ -249,7 +249,7 @@ class Tester():
 
         for vset in self.validationsets:
             scores[vset] = []
-            HR_dir = os.path.join(self.hr_rootdir,vset)
+            HR_dir = os.path.join(self.hr_rootdir,vset,'x'+str(self.upsize))
             LR_dir = os.path.join(os.path.join(self.lr_rootdir,vset),self.resfolder)
 
             #SORT THE HR AND LR FILES IN THE SAME ORDER
@@ -315,7 +315,7 @@ class Tester():
 
         for vset in self.validationsets:
             scores[vset] = []
-            HR_dir = os.path.join(self.hr_rootdir,vset)
+            HR_dir = os.path.join(self.hr_rootdir,vset,'x'+str(self.upsize))
             LR_dir = os.path.join(os.path.join(self.lr_rootdir,vset),self.resfolder)
 
             #SORT THE HR AND LR FILES IN THE SAME ORDER
@@ -375,7 +375,7 @@ class Tester():
 
         for vset in self.validationsets:
             scores[vset] = []
-            HR_dir = os.path.join(self.hr_rootdir,vset)
+            HR_dir = os.path.join(self.hr_rootdir,vset,'x'+str(self.upsize))
             LR_dir = os.path.join(os.path.join(self.lr_rootdir,vset),self.resfolder)
 
             #SORT THE HR AND LR FILES IN THE SAME ORDER

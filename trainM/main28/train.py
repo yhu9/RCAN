@@ -54,14 +54,14 @@ class SISR():
         self.SR_COUNT = args.action_space
         SRMODEL_PATH = args.srmodel_path
         self.batch_size = args.batch_size
-        self.TRAINING_LRPATH = glob.glob(os.path.join(args.training_lrpath,"*"))
-        self.TRAINING_HRPATH = glob.glob(os.path.join(args.training_hrpath,"*"))
+        self.TRAINING_LRPATH = glob.glob(os.path.join(args.training_lrpath,'x'+str(args.upsize),"*"))
+        self.TRAINING_HRPATH = glob.glob(os.path.join(args.training_hrpath,'x'+str(args.upsize),"*"))
         self.TRAINING_LRPATH.sort()
         self.TRAINING_HRPATH.sort()
         self.PATCH_SIZE = args.patchsize
-        self.TESTING_PATH = glob.glob(os.path.join(args.testing_path,"*"))
+        self.TESTING_PATH = glob.glob(os.path.join(args.testing_path,'x'+str(args.upsize),"*"))
         self.LR = args.learning_rate
-        self.UPSIZE = args.upsize
+        self.upsize = args.upsize
         self.step = args.step
         self.name = args.name
         self.logger = logger.Logger(args.name,self.step)   #create our logger for tensorboard in log directory
@@ -89,12 +89,9 @@ class SISR():
 
             #CREATE THE ARCH
             if args.model == 'basic':
-                model = arch.RRDBNet(3,3,32,args.d,gc=8)
-                #pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-                #print(pytorch_total_params)
-                #quit()
+                model = arch.RRDBNet(3,3,32,args.d,gc=8,upsize=args.upsize)
             elif args.model == 'ESRGAN':
-                model = arch.RRDBNet(3,3,64,23,gc=32)
+                model = arch.RRDBNet(3,3,64,23,gc=32,upsize=args.upsize)
             elif args.model == 'RCAN':
                 torch.manual_seed(args.seed)
                 checkpoint = utility.checkpoint(args)
@@ -111,13 +108,18 @@ class SISR():
             elif args.random:
                 print('random init')
             elif args.model == 'ESRGAN':
-                model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
+                #model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
+                loaded_dict = torch.load(args.ESRGAN_PATH)
+                model_dict = model.state_dict()
+                loaded_dict = {k: v for k, v in loaded_dict.items() if k in model_dict}
+                model_dict.update(loaded_dict)
+                model.load_state_dict(model_dict)
             elif args.model == 'RCAN':
                 print('RCAN loaded!')
                 model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=True)
             elif args.model == 'basic':
                 if args.d == 1:
-                    model.load_state_dict(torch.load(args.basicpath_d1),strict=True)
+                    model.load_state_dict(torch.load(args.basicpath_d1),strict=False)
                 elif args.d == 2:
                     model.load_state_dict(torch.load(args.basicpath_d2),strict=True)
                 elif args.d == 4:
@@ -167,8 +169,8 @@ class SISR():
         lrh, lrw = h,w
         LR = np.pad(LR,pad_width=((0,padh),(0,padw),(0,0)), mode='symmetric')       #symmetric padding to allow meaningful edges
         h,w,d = HR.shape
-        padh = (patch_size*self.UPSIZE) - (h % (patch_size*self.UPSIZE))
-        padw = (patch_size*self.UPSIZE) - (w % (patch_size*self.UPSIZE))
+        padh = (patch_size*self.upsize) - (h % (patch_size*self.upsize))
+        padw = (patch_size*self.upsize) - (w % (patch_size*self.upsize))
         h = h + padh
         w = w + padw
         hrh,hrw = h,w
@@ -178,28 +180,12 @@ class SISR():
         HR = torch.from_numpy(HR).float().unsqueeze(0)
 
         LR = LR.unfold(1,self.PATCH_SIZE,self.PATCH_SIZE).unfold(2,self.PATCH_SIZE,self.PATCH_SIZE).contiguous()
-        HR = HR.unfold(1,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).unfold(2,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).contiguous()
+        HR = HR.unfold(1,self.PATCH_SIZE*self.upsize,self.PATCH_SIZE*self.upsize).unfold(2,self.PATCH_SIZE*self.upsize,self.PATCH_SIZE*self.upsize).contiguous()
 
         LR = LR.view(-1,3,self.PATCH_SIZE,self.PATCH_SIZE) / 255.0
-        HR = HR.view(-1,3,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE) / 255.0
+        HR = HR.view(-1,3,self.PATCH_SIZE*self.upsize,self.PATCH_SIZE*self.upsize) / 255.0
 
         return LR,HR
-
-    #APPLY SISR on a LR patch AND OPTIMIZE THAT PARTICULAR SISR MODEL ON CORRESPONDING HR PATCH
-    def applySISR(self,lr,action,hr):
-
-        self.SRoptimizers[action].zero_grad()
-        hr_hat = self.SRmodels[action](lr)
-        loss = F.l1_loss(hr_hat,hr)
-        loss.backward()
-        self.SRoptimizers[action].step()
-
-        hr_hat = hr_hat.squeeze(0).permute(1,2,0); hr = hr.squeeze(0).permute(1,2,0)
-        hr_hat = hr_hat.detach().cpu().numpy()
-        hr = hr.detach().cpu().numpy()
-        psnr,ssim = util.calc_metrics(hr_hat,hr,crop_border=self.UPSIZE)
-
-        return hr_hat, psnr, ssim, loss.item()
 
     #SAVE THE AGENT AND THE SISR MODELS INTO A SINGLE FILE
     def savemodels(self):
@@ -217,7 +203,7 @@ class SISR():
         #AND ATTEMPT TO SUPER RESOLVE EACH PATCH
 
         unfold_LR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE,stride=self.PATCH_SIZE,dilation=1)
-        unfold_HR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE*4,stride=self.PATCH_SIZE*4,dilation=1)
+        unfold_HR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE*self.upsize,stride=self.PATCH_SIZE*self.upsize,dilation=1)
 
         #QUICK CHECK ON EVERYTHING
         with torch.no_grad():
@@ -266,8 +252,7 @@ class SISR():
                         sisrs.append(hr_pred)
 
                     #UPDATE BOTH THE SISR MODELS AND THE SELECTION MODEL ACCORDING TO THEIR LOSS
-                    SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
-                    SR_result.requires_grad = False
+                    SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.upsize,self.PATCH_SIZE * self.upsize).to(self.device)
                     sisrloss = 0
                     l1diff = []
                     for j, sr in enumerate(sisrs):
