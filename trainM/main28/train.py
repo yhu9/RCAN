@@ -272,7 +272,7 @@ class SISR():
                     sisrloss_total = sisrloss2
                     #sisrloss_total = sisrloss *100 + selectionloss
                     #sisrloss_total = (sisrloss + sisrloss2)*1000 + selectionloss
-                    #sisrloss_total = sisrloss2 * 1000 + selectionloss + minval.mean() * 1000
+                    sisrloss_total = sisrloss2 * 100 + selectionloss + minval.mean() * 100
                     sisrloss_total.backward()
                     [opt.step() for opt in self.SRoptimizers]
                     self.agent.opt.step()
@@ -320,7 +320,7 @@ class SISR():
                             #variance = torch.from_numpy(info['variance']).unsqueeze(0)
                             #print(f"max var: {torch.max(variance)}, min var: {torch.min(variance)}")
                             #variance = variance / torch.max(variance)
-                            self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask})
+                            self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask[:3]})
                         self.savemodels()
                     self.logger.incstep()
 
