@@ -40,8 +40,9 @@ class Tester():
             self.SRmodels = SRmodels
 
         downsample_method = args.down_method
+        self.batchsize = 64
         self.args=args
-        self.hr_rootdir = os.path.join(args.dataroot,'HR')
+        self.hr_rootdir = os.path.join(args.dataroot,'HR2')
         self.lr_rootdir = os.path.join(args.dataroot,"LR" + downsample_method)
         self.validationsets = testset
         self.upsize = args.upsize
@@ -170,7 +171,7 @@ class Tester():
     # quick version of evaluate bounds
     def evaluate_bounds(self, lr, hr):
         self.agent.model.eval()
-        if self.model == 'ESRGAN':
+        if self.model == 'ESRGAN' or self.model == 'basic':
             lr = lr / 255.0
             hr = hr / 255.0
 
@@ -186,14 +187,30 @@ class Tester():
         maxval, maxarg = choices.max(dim=1)
         minval, minarg = choices.min(dim=1)
 
-        sisrs = []
-        l1 = []
-        for i, sisr in enumerate(self.SRmodels):
-            sr = sisr(LR)
-            sisrs.append(sr)
-            l1.append(torch.abs(sr - HR).mean(dim=1).mean(dim=1).mean(dim=1))
-        l1diff = torch.stack(l1,dim=1)
-        sisrs = torch.stack(sisrs,dim=1)
+        sisr_batches = []
+        l1_batches = []
+        for i in range(0,choices.shape[0]-1,self.batchsize):
+            sisrs = []
+            l1 = []
+            lrbatch = LR[i:i+self.batchsize]
+            hrbatch = HR[i:i+self.batchsize]
+            for j, sisr in enumerate(self.SRmodels):
+                sr = sisr(lrbatch)
+                sisrs.append(sr)
+                l1.append(torch.abs(sr - hrbatch).mean(dim=1).mean(dim=1).mean(dim=1))
+            batch_diff = torch.stack(l1,dim=1)
+            batch_sisr = torch.stack(sisrs,dim=1)
+            sisr_batches.append(batch_sisr)
+            l1_batches.append(batch_diff)
+        sisrs = torch.cat(sisr_batches,dim=0)
+        l1diff = torch.cat(l1_batches,dim=0)
+
+        #for i, sisr in enumerate(self.SRmodels):
+        #    sr = sisr(LR)
+        #    sisrs.append(sr)
+        #    l1.append(torch.abs(sr - HR).mean(dim=1).mean(dim=1).mean(dim=1))
+        #l1diff = torch.stack(l1,dim=1)
+        #sisrs = torch.stack(sisrs,dim=1)
         mask = torch.zeros(sisrs.shape).to(self.device)
         mask[:,0,0] += 255
         mask[:,1,1] += 255
@@ -231,7 +248,7 @@ class Tester():
         mask = util.recombine(weight,h1,w1,h2,w2)
 
         #FORMAT THE OUTPUT
-        if self.model == 'ESRGAN':
+        if self.model == 'ESRGAN' or self.model =='basic':
             optimal = optimal.clip(0,1) * 255.0
             worst = worst.clip(0,1) * 255.0
             sr = sr.clip(0,1) * 255.0
@@ -295,7 +312,7 @@ class Tester():
 
         for vset in self.validationsets:
             scores[vset] = []
-            HR_dir = os.path.join(self.hr_rootdir,vset)
+            HR_dir = os.path.join(self.hr_rootdir,vset,'x'+str(self.upsize))
             LR_dir = os.path.join(os.path.join(self.lr_rootdir,vset),self.resfolder)
 
             #SORT THE HR AND LR FILES IN THE SAME ORDER
@@ -320,7 +337,7 @@ class Tester():
                 choices = selection_details['choices']
 
                 selection_details['file'] = os.path.basename(lr_file)
-                print(f"worst mse: {psnr_worst:.3f}/{ssim_worst:.3f} | optimal mse: {psnr_optimal:.3f}/{ssim_optimal:.3f} | best choice: {psnr_best:.3f}/{ssim_best:.3f} | bad choice: {psnr_low:.3f}/{ssim_low:.3f} | {selection_details['file']}")
+                print(f"optimal mse: {psnr_optimal:.3f}/{ssim_optimal:.3f} | worst mse: {psnr_worst:.3f}/{ssim_worst:.3f} | best choice: {psnr_best:.3f}/{ssim_best:.3f} | bad choice: {psnr_low:.3f}/{ssim_low:.3f} | {selection_details['file']}")
                 scores[vset].append([psnr_worst,ssim_worst,psnr_optimal,ssim_optimal,psnr_best,ssim_best,psnr_low,ssim_low])
 
                 #OPTIONAL THINGS TO DO
@@ -542,7 +559,6 @@ if __name__ == '__main__':
                 cv2.imshow('High Res',cv2.cvtColor(hrimg,cv2.COLOR_BGR2RGB))
                 cv2.imshow('Super Res',cv2.cvtColor(SR,cv2.COLOR_BGR2RGB))
                 cv2.waitKey(0)
-
 
         elif args.testbasic:
             if args.hrimg != "":
