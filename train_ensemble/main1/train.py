@@ -254,11 +254,12 @@ class SISR():
 
                     #UPDATE BOTH THE SISR MODELS AND THE SELECTION MODEL ACCORDING TO THEIR LOSS
                     SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.upsize,self.PATCH_SIZE * self.upsize).to(self.device)
+                    sisrloss = 0
                     l1diff = []
                     for j, sr in enumerate(sisrs):
                         self.SRoptimizers[j].zero_grad()
                         diff = torch.abs(sr-hrbatch).sum(1)
-                        #sisrloss += torch.mean(probs[:,j] * diff)
+                        sisrloss += torch.mean(probs[:,j] * diff)
                         l1 = torch.abs(sr-hrbatch).mean(dim=1)
                         l1diff.append(l1)
                         pred = sr * probs[:,j].unsqueeze(1)
@@ -267,10 +268,8 @@ class SISR():
                     maxval,maxidx = probs.max(dim=1)
                     l1diff = torch.stack(l1diff,dim=1)
                     minval,minidx = l1diff.min(dim=1)
-                    #maxval2,maxidx2 = l1diff.max(dim=1)
-                    #sisrloss2 = lossfn(SR_result,hrbatch)
-                    #sisrloss = minval.mean()
-                    sisrloss = torch.sum(l1diff.gather(1,maxidx.unsqueeze(1)))
+                    maxval2,maxidx2 = l1diff.max(dim=1)
+                    sisrloss2 = lossfn(SR_result,hrbatch)
                     selectionloss = torch.mean(probs.gather(1,minidx.unsqueeze(1)).clamp(1e-16,1).log()) * -1
                     #selectionloss2 = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-16,1).log())
                     #sisrloss_total = sisrloss2
@@ -279,7 +278,6 @@ class SISR():
                     #sisrloss_total = sisrloss2 * 1000 + selectionloss + minval.mean()
                     #sisrloss_total = selectionloss + minval.mean()
                     #sisrloss_total = selectionloss
-                    sisrloss_total = sisrloss + selectionloss
                     sisrloss_total.backward()
                     [opt.step() for opt in self.SRoptimizers]
                     self.agent.opt.step()

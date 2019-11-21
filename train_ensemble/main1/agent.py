@@ -135,32 +135,19 @@ class Model(nn.Module):
             with torch.no_grad():
                 if type(m) == torch.nn.Conv2d:
                     m.weight.data *= 0.0
+        self.SegNet = models.segmentation.deeplabv3_resnet101(pretrained=False,num_classes=k)
 
-        #self.SegNet = models.segmentation.fcn_resnet50(pretrained=False,num_classes=64)
-        #self.SegNet = models.segmentation.deeplabv3_resnet101(pretrained=False,num_classes=k)
+        #self.first = torch.nn.Sequential(
+        #        torch.nn.BatchNorm2d(3),
+        #        torch.nn.Conv2d(3,32,3,1,1)
+        #        )
 
-        self.first = torch.nn.Sequential(
-                torch.nn.Conv2d(3,64,3,1,1)
-                )
-
-        self.db1 = DenseBlock(64,16)
-        self.db2 = DenseBlock(64*2,16)
-        self.db3 = DenseBlock(64*3,16)
-        self.db4 = DenseBlock(64*4,16)
+        #self.db1 = DenseBlock(32,8)
+        #self.db2 = DenseBlock(32*2,8)
+        #self.db3 = DenseBlock(32*3,8)
+        #self.db4 = DenseBlock(32*4,8)
         #[b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
 
-        if upsize == 4:
-            self.final = torch.nn.Sequential(
-                    torch.nn.Conv2d(320,64,3,1,1),
-                    torch.nn.Upsample(scale_factor=upsize,mode='bicubic'),
-                    torch.nn.Conv2d(64,64,3,1,1),
-                    torch.nn.BatchNorm2d(64),
-                    torch.nn.PReLU(),
-                    torch.nn.Conv2d(64,32,3,1,1),
-                    torch.nn.BatchNorm2d(32),
-                    torch.nn.PReLU(),
-                    torch.nn.Conv2d(32,k,3,1,1)
-                    )
         #if upsize == 4:
         #    self.final = torch.nn.Sequential(
         #            torch.nn.ConvTranspose2d(64,64,4,2,1,bias=False),
@@ -171,8 +158,8 @@ class Model(nn.Module):
         #            torch.nn.PReLU(),
         #            torch.nn.Conv2d(32,k,3,1,1)
         #            )
-        #if upsize == 4:
-        #    self.final = torch.nn.Upsample(scale_factor=upsize)
+        if upsize == 4:
+            self.final = torch.nn.Upsample(scale_factor=upsize)
         elif upsize == 8:
             self.final = torch.nn.Sequential(
                     torch.nn.Upsample(scale_factor=2),
@@ -193,19 +180,19 @@ class Model(nn.Module):
 
     #FORWARD FUNCTION
     def forward(self,x):
-        #x = self.SegNet(x)['out']
-        x = self.first(x)
-        x = self.db1(x)
-        x = self.db2(x)
-        x = self.db3(x)
-        x = self.db4(x)
+        x = self.SegNet(x)['out']
+        #x = self.first(x)
+        #x = self.db1(x)
+        #x = self.db2(x)
+        #x = self.db3(x)
+        #x = self.db4(x)
         x = self.final(x)
         x = self.softmaxfn(x)
         return x
 
     #FORWARD FUNCTION
     def raw(self,x):
-        x = self.SegNet(x)['out']
+        #x = self.SegNet(x)['out']
         x = self.first(x)
         x = self.db1(x)
         x = self.db2(x)
