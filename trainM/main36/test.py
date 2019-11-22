@@ -40,7 +40,7 @@ class Tester():
             self.SRmodels = SRmodels
 
         downsample_method = args.down_method
-        self.hr_rootdir = os.path.join(args.dataroot,'HR')
+        self.hr_rootdir = os.path.join(args.dataroot,'HR2')
         self.lr_rootdir = os.path.join(args.dataroot,"LR" + downsample_method)
         self.validationsets = testset
         self.upsize = args.upsize
@@ -187,8 +187,8 @@ class Tester():
             if self.model == 'ESRGAN' or self.model == 'basic':
                 sr = sr * 255.0
             SR_result.append(sr)
-        sr_results = torch.cat(SR_result,dim=1)
-        choices = self.agent.model(sr_results)
+
+        choices = self.agent.model(lr)
 
         lowchoice, idxlow = choices.min(dim=1)
         maxchoice, idxhigh = choices.max(dim=1)
@@ -244,7 +244,7 @@ class Tester():
 
         for vset in self.validationsets:
             scores[vset] = []
-            HR_dir = os.path.join(self.hr_rootdir,vset)
+            HR_dir = os.path.join(self.hr_rootdir,vset,'x'+str(self.upsize))
             LR_dir = os.path.join(os.path.join(self.lr_rootdir,vset),self.resfolder)
 
             #SORT THE HR AND LR FILES IN THE SAME ORDER
@@ -254,7 +254,6 @@ class Tester():
             LR_files.sort()
             HR_files.reverse()
             LR_files.reverse()
-
             #APPLY SISR ON EACH LR IMAGE AND GATHER RESULTS
             for hr_file,lr_file in zip(HR_files,LR_files):
                 hr = imageio.imread(hr_file)

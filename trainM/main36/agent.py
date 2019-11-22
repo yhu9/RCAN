@@ -60,14 +60,15 @@ class DenseBlock(nn.Module):
 
 #OUR ENCODER DECODER NETWORK FOR MODEL SELECTION NETWORK
 class Model(nn.Module):
-    def __init__(self,k):
+    def __init__(self,k,upsize=4):
         super(Model,self).__init__()
 
         #self.SegNet = models.segmentation.fcn_resnet101(pretrained=True,num_classes=21)
-        #self.SegNet = models.deeplabv3_resnet50(pretrained=False,num_classes=k)
+        self.SegNet = models.deeplabv3_resnet50(pretrained=False,num_classes=k)
 
+        '''
         self.first = torch.nn.Sequential(
-                torch.nn.Conv2d(k*3,64,5,1,2,bias=False)
+                torch.nn.Conv2d(3,64,5,1,2,bias=True)
                 )
 
         self.db1 = DenseBlock(64,24)
@@ -75,22 +76,28 @@ class Model(nn.Module):
         self.db3 = DenseBlock(64,24)
 
         self.final = torch.nn.Sequential(
-                torch.nn.Conv2d(64,64,5,1,2,bias=False),
+                torch.nn.Conv2d(64,64,5,1,2,bias=True),
                 torch.nn.ReLU(),
-                torch.nn.Conv2d(64,k,5,1,2,bias=False),
+                torch.nn.Conv2d(64,k,5,1,2,bias=True),
                 torch.nn.ReLU(),
                 torch.nn.Softmax(dim=1)
                 )
+        '''
+
+        self.fn = torch.nn.Softmax(dim=1)
 
     #FORWARD FUNCTION
     def forward(self,x):
-        #x = self.SegNet(x)['out']
+        print(x.shape)
+        x = self.SegNet(x)['out']
+        print(x.shape)
+        x = self.fn(x)
         #x = F.softmax(x,dim=1)
-        x = self.first(x)
-        x = self.db1(x)
-        x = self.db2(x)
-        x = self.db3(x)
-        x = self.final(x)
+        #x = self.first(x)
+        #x = self.db1(x)
+        #x = self.db2(x)
+        #x = self.db3(x)
+        #x = self.final(x)
         return x
 
 #######################################################################################################
@@ -118,14 +125,14 @@ class Agent():
 
         #INITIALIZE THE MODELS
         #self.model = Model(self.ACTION_SPACE)
-        self.model = unet_model.UNet(self.ACTION_SPACE)
+        self.model = unet_model.UNet(self.ACTION_SPACE,upsize=args.upsize)
         self.model.to(self.device)
         if chkpoint:
             print('Agent Loaded at checkpoint!')
             self.model.load_state_dict(chkpoint['agent'])
 
         self.model.to(self.device)
-        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-3)
+        self.opt = torch.optim.Adam(self.model.parameters(),lr=1e-4)
         #self.opt = torch.optim.SGD(self.model.parameters(),lr=1e-3)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.opt,200,0.5)
 

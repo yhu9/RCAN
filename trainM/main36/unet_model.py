@@ -8,10 +8,11 @@ from unet_parts import *
 
 
 class UNet(nn.Module):
-    def __init__(self, k, bilinear=False):
+    def __init__(self, k, bilinear=False,upsize=4):
         super(UNet, self).__init__()
 
-        self.inc = DoubleConv(3*k, 64)
+        self.inc = DoubleConv(3, 64)
+        self.up = torch.nn.Upsample(scale_factor=upsize)
         self.down1 = Down(64, 128)
         self.down2 = Down(128, 256)
         self.down3 = Down(256, 512)
@@ -24,6 +25,7 @@ class UNet(nn.Module):
         self.softmaxfn = nn.Softmax(dim=1)
 
     def forward(self, x):
+        x = self.up(x)
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)

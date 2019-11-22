@@ -53,8 +53,8 @@ class SISR():
         #INITIALIZE VARIABLES
         SRMODEL_PATH = args.srmodel_path
         self.batch_size = args.batch_size
-        self.TRAINING_LRPATH = glob.glob(os.path.join(args.training_lrpath,"*"))
-        self.TRAINING_HRPATH = glob.glob(os.path.join(args.training_hrpath,"*"))
+        self.TRAINING_LRPATH = glob.glob(os.path.join(args.training_lrpath,'x'+str(args.upsize),"*"))
+        self.TRAINING_HRPATH = glob.glob(os.path.join(args.training_hrpath,'x'+str(args.upsize),"*"))
         self.TRAINING_LRPATH.sort()
         self.TRAINING_HRPATH.sort()
         self.PATCH_SIZE = args.patchsize
@@ -290,22 +290,21 @@ class SISR():
 
             # GET SISR RESULTS FROM EACH MODEL
             sisrs = []
+            probs = self.agent.model(lrbatch)
             for j, sisr in enumerate(self.SRmodels):
                 hr_pred = sisr(lrbatch)
                 sisrs.append(hr_pred)
             sr_results = torch.cat(sisrs,dim=1)
-            probs = self.agent.model(sr_results)
             choice_val, choice = probs.max(dim=1)
 
             # UPDATE BOTH THE SISR MODELS AND THE SELECTION MODEL ACCORDING TO THEIR LOSS
             SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
             l2diff = []
-            sisrloss = torch.zeros(self.batch_size,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).to(self.device)
             for j, sr in enumerate(sisrs):
                 self.SRoptimizers[j].zero_grad()
-                #diff = (sr-hrbatch).pow(2).sum(dim=1)
-                diff = torch.abs(sr-hrbatch).sum(1)
-                sisrloss += probs[:,j] * diff
+                diff = (sr-hrbatch).pow(2).sum(dim=1)
+                #diff = torch.abs(sr-hrbatch).sum(1)
+                #sisrloss += probs[:,j] * diff
                 l2diff.append(diff)
                 pred = sr * probs[:,j].unsqueeze(1)
                 SR_result += pred
@@ -313,40 +312,18 @@ class SISR():
             diffmap = torch.nn.functional.softmax(-1 * (l2diff - torch.mean(l2diff)),dim=1)
             self.agent.opt.zero_grad()
             minval, minidx = l2diff.min(dim=1)
-            #selectionloss = -1 * probs.gather(1, minidx.unsqueeze(1)).clamp(1e-16).log() * diffmap.gather(1,minidx.unsqueeze(1)).detach()
-            selectionloss = -1 * probs.gather(1, minidx.unsqueeze(1)).clamp(1e-16).log()
-            sisrloss2 = torch.abs(SR_result - hrbatch)
-            sisrloss = sisrloss.unsqueeze(1)
-            if self.model == 'RCAN':
-                sisrloss_total = minval.mean() + sisrloss2.mean() + selectionloss.mean() * 255
-            else:
-                alpha = 1000
-                #sisrloss_total = minval.mean()
-                #sisrloss_total = (minval.mean() + sisrloss2.mean()) * 10 + selectionloss.mean()     #main
-                #sisrloss_total = (minval.mean() + sisrloss.mean()) * 10 + selectionloss.mean()     #main
-                #sisrloss_total = sisrloss.mean()*alpha + selectionloss.mean()     # main36/debug-d4
-                sisrloss_total = (sisrloss + sisrloss2).mean()*alpha + selectionloss.mean()     # main36/debug-d4
-                #sisrloss_total = (sisrloss + selectionloss + sisrloss2).mean()
+
+            # another option is to minimize intraclass/interclass probabilities
+            sisrloss = torch.sum(l2diff.gather(1, choice.unsqueeze(1)))
+            selectionloss = torch.mean(-1 * (probs.gather(1,minidx.unsqueeze(1)) + 1e-16).log())        # cross entropy loss with one hot ground truth
+
+            sisrloss_total = sisrloss + selectionloss
             sisrloss_total.backward()
             [opt.step() for opt in self.SRoptimizers]
             self.agent.opt.step()
 
-            # something for the future probably ???
-            #probs = self.agent.model(sr_results.detach())
-            #selectionloss = torch.mean(-1 * probs.gather(1,minidx.unsqueeze(1)).clamp(1e-16).log())
-            #sisrloss = torch.zeros(self.batch_size,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).to(self.device)
-            #for j, sisr in enumerate(self.SRmodels):
-            #    hr_pred = sisr(lrbatch)
-            #    l2 = (hr_pred - hrbatch).pow(2).sum(dim=1)
-            #    sisrloss += probs[:,j] * l2
-            #loss2 = sisrloss.mean()
-            #self.agent.opt.zero_grad()
-            #loss2.backward()
-            #self.agent.opt.step()
-
             target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
             selectionloss = selectionloss.mean()
-            sisrloss = sisrloss.mean()
 
             # CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
             lr = self.SRoptimizers[-1].param_groups[0]['lr']
@@ -393,7 +370,6 @@ class SISR():
         data.remove(alpha)
         #curriculum = [alpha]
         curriculum = list(range(len(self.TRAINING_HRPATH)))
-
         self.optimize(curriculum,1.0)
         # main training loop
         for i in count():
