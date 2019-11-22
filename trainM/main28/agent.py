@@ -146,12 +146,12 @@ class Model(nn.Module):
         self.db1 = DenseBlock(64,16)
         self.db2 = DenseBlock(64*2,16)
         self.db3 = DenseBlock(64*3,16)
-        self.db4 = DenseBlock(64*4,16)
+        #self.db4 = DenseBlock(64*4,16)
         #[b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
 
         if upsize == 4:
             self.final = torch.nn.Sequential(
-                    torch.nn.Conv2d(320,64,3,1,1),
+                    torch.nn.Conv2d(256,64,3,1,1),
                     torch.nn.Upsample(scale_factor=upsize,mode='bicubic'),
                     torch.nn.Conv2d(64,64,3,1,1),
                     torch.nn.BatchNorm2d(64),
@@ -198,7 +198,6 @@ class Model(nn.Module):
         x = self.db1(x)
         x = self.db2(x)
         x = self.db3(x)
-        x = self.db4(x)
         x = self.final(x)
         x = self.softmaxfn(x)
         return x

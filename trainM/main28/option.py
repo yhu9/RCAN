@@ -27,7 +27,7 @@ parser.add_argument("--testing_path",default="../../../data/DIV2K_train_LR_bicub
 parser.add_argument("--patchsize",default=32,type=int,help="patch size to super resolve")
 parser.add_argument("--loadagent",default=False, action='store_const',const=True)
 parser.add_argument("--learning_rate",default=0.01,help="Learning rate of Super Resolution Models")
-parser.add_argument("--upsize", default=8,type=int,help="Upsampling size of the network")
+parser.add_argument("--upsize", default=4,type=int,help="Upsampling size of the network")
 parser.add_argument("--random",default=False,action='store_const',const=True,help='Set Super resolution models to random state')
 parser.add_argument("--gen_patchinfo",default=False,action='store_const',const=True)
 parser.add_argument("--device",default='cuda:0',help='set device to train on')

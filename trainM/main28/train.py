@@ -190,6 +190,7 @@ class SISR():
 
     #SAVE THE AGENT AND THE SISR MODELS INTO A SINGLE FILE
     def savemodels(self):
+            #sisrloss = torch.zeros(self.batch_size,self.PATCH_SIZE*self.UPSIZE,self.PATCH_SIZE*self.UPSIZE).to(self.device)
         data = {}
         data['agent'] = self.agent.model.state_dict()
         for i,m in enumerate(self.SRmodels):
