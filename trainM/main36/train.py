@@ -322,7 +322,9 @@ class SISR():
             [opt.step() for opt in self.SRoptimizers]
             self.agent.opt.step()
 
-            target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
+            target = torch.zeros(l2diff.shape)
+            for i in range(len(self.SRmodels)):
+                target[:,i] = (minidx == i).float()
             selectionloss = selectionloss.mean()
 
             # CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING

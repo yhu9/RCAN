@@ -149,18 +149,18 @@ class Model(nn.Module):
         #self.db4 = DenseBlock(64*4,16)
         #[b.apply(init_weights) for b in [self.db1,self.db2,self.db3,self.db4]]
 
-        if upsize == 4:
-            self.final = torch.nn.Sequential(
-                    torch.nn.Conv2d(256,64,3,1,1),
-                    torch.nn.Upsample(scale_factor=upsize,mode='bilinear'),
-                    torch.nn.Conv2d(64,64,3,1,1),
-                    torch.nn.BatchNorm2d(64),
-                    torch.nn.PReLU(),
-                    torch.nn.Conv2d(64,32,3,1,1),
-                    torch.nn.BatchNorm2d(32),
-                    torch.nn.PReLU(),
-                    torch.nn.Conv2d(32,k,3,1,1)
-                    )
+        self.final = torch.nn.Sequential(
+                torch.nn.Conv2d(256,64,3,1,1),
+                torch.nn.Upsample(scale_factor=upsize,mode='bilinear'),
+                torch.nn.Conv2d(64,64,3,1,1),
+                torch.nn.BatchNorm2d(64),
+                torch.nn.PReLU(),
+                torch.nn.Conv2d(64,32,3,1,1),
+                torch.nn.BatchNorm2d(32),
+                torch.nn.PReLU(),
+                torch.nn.Conv2d(32,k,3,1,1)
+                )
+
         #if upsize == 4:
         #    self.final = torch.nn.Sequential(
         #            torch.nn.ConvTranspose2d(64,64,4,2,1,bias=False),
@@ -173,6 +173,7 @@ class Model(nn.Module):
         #            )
         #if upsize == 4:
         #    self.final = torch.nn.Upsample(scale_factor=upsize)
+        '''
         elif upsize == 8:
             self.final = torch.nn.Sequential(
                     torch.nn.Upsample(scale_factor=2),
@@ -189,6 +190,7 @@ class Model(nn.Module):
                     torch.nn.PReLU(),
                     torch.nn.Conv2d(32,k,3,1,1)
                     )
+        '''
         self.softmaxfn = torch.nn.Softmax(dim=1)
 
     #FORWARD FUNCTION
