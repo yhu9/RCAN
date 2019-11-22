@@ -152,7 +152,7 @@ class Model(nn.Module):
         if upsize == 4:
             self.final = torch.nn.Sequential(
                     torch.nn.Conv2d(256,64,3,1,1),
-                    torch.nn.Upsample(scale_factor=upsize,mode='bicubic'),
+                    torch.nn.Upsample(scale_factor=upsize,mode='bilinear'),
                     torch.nn.Conv2d(64,64,3,1,1),
                     torch.nn.BatchNorm2d(64),
                     torch.nn.PReLU(),

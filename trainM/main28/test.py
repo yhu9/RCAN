@@ -222,13 +222,17 @@ class Tester():
         for sr in SR_result:
             pixelMSE = (sr - hr).pow(2).sqrt().mean(dim=1)
             l2diff.append(pixelMSE)
-        l2diff = torch.stack(l2diff)
-        minvals,idxlow = l2diff.min(dim=0)
-        maxvals,idxhigh= l2diff.max(dim=0)
-
+        l2diff = torch.stack(l2diff,dim=1)
+        minvals,idxlow = l2diff.min(dim=1)
+        maxvals,idxhigh= l2diff.max(dim=1)
         advantage = (l2diff - torch.min(l2diff)) / torch.max(l2diff)
-        upperboundmask = torch.nn.functional.one_hot(idxlow,len(l2diff)).permute(0,3,1,2)
-        lowerboundmask = torch.nn.functional.one_hot(idxhigh,len(l2diff)).permute(0,3,1,2)
+
+        # create lower and upper bound mask for visual
+        upperboundmask = torch.zeros(l2diff.shape)
+        lowerboundmask = torch.zeros(l2diff.shape)
+        for i in range(len(self.SRmodels)):
+            upperboundmask[:,i] = (idxlow == i).float()
+            lowerboundmask[:,i] = (idxhigh == i).float()
 
         #GET LOWER AND UPPER BOUND IMAGE
         lowerboundImg = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
@@ -240,7 +244,7 @@ class Tester():
             upperboundImg += maskhigh.float().unsqueeze(1) * SR_result[i]
 
         #FORMAT THE OUTPUT
-        diff = l2diff.clamp(0,1).squeeze(1).permute(1,2,0).data.cpu().numpy()
+        diff = l2diff.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
         lowerboundImg = lowerboundImg.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
         upperboundImg = upperboundImg.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
         bestchoice = bestchoice.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()

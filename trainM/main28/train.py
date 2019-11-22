@@ -288,10 +288,15 @@ class SISR():
                     diffmap = torch.nn.functional.softmax(-255 * (l1diff - torch.mean(l1diff)),dim=1)
                     reward = (l1diff - l1diff.mean(1).unsqueeze(1)).detach() * -1
                     reward = reward.sign()
-                    target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
+
+                    target = torch.zeros(l1diff.shape)
+                    for i in range(len(self.SRmodels)):
+                        target[:,i] = (minidx == i).float()
+
+
+
                     #selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
                     #selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)) * reward)
-
                     #[sched.step() for sched in self.schedulers]
                     #self.agent.scheduler.step()
 
