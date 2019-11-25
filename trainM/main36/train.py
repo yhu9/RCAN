@@ -52,7 +52,7 @@ class SISR():
 
         #INITIALIZE VARIABLES
         SRMODEL_PATH = args.srmodel_path
-        self.batch_size = args.batch_size
+        self.batchsize = args.batch_size
         self.TRAINING_LRPATH = glob.glob(os.path.join(args.training_lrpath,'x'+str(args.upsize),"*"))
         self.TRAINING_HRPATH = glob.glob(os.path.join(args.training_hrpath,'x'+str(args.upsize),"*"))
         self.TRAINING_LRPATH.sort()
@@ -66,6 +66,7 @@ class SISR():
         self.logger = logger.Logger(args.name,self.step)   #create our logger for tensorboard in log directory
         self.device = torch.device(args.device) #determine cpu/gpu
         self.model = args.model
+        self.k = args.action_space
 
         #DEFAULT START OR START ON PREVIOUSLY TRAINED EPOCH
         self.load(args)
@@ -257,6 +258,35 @@ class SISR():
         self.agent.model.train()
         return difficulty
 
+    # objective defined by IIC paper "Invariant Information Clustering for Unsupervised IMage Classification and Segmentation"
+    def mutualInformation(self,z,zt):
+        P = (z.unsqueeze(2) * zt.unsqueeze(1)).sum(dim=0)
+        P = P / P.sum()
+        P = P.clamp(min=1e-16)
+        Pi = P.sum(dim=1).view(self.k,1).expand(self.k,2)
+        Pj = P.sum(dim=0).view(1,2).expand(self.k,2)
+        return -1 * (P * (torch.log(P) - (torch.log(Pi) + torch.log(Pj)))).sum()
+
+    # conditional entropy
+    def conditionalEntropy(self,z,zt):
+        P = (z.unsqueeze(2) * zt.unsqueeze(1)).sum(dim=0)
+        P = P / P.sum()
+        P = P.clamp(min=1e-16)
+        Pk = P.sum(dim=1).view(self.k,1).expand(self.k,2)
+        return -1 * (P * (torch.log(P) - torch.log(Pk))).sum()
+
+    # get probabitilies based on trained agent
+    def getProbs(self,lrbatch):
+        prob = self.agent.model(lrbatch)
+        mode = int(random.random()*10) % 3
+        if mode == 0:
+            prob2 = util.rotateTensor(self.agent.model(util.rotateTensor(lrbatch,90)),90)
+        elif mode == 1:
+            prob2 = util.rotateTensor(self.agent.model(util.rotateTensor(lrbatch,180)),180)
+        elif mode == 2:
+            prob2 = util.rotateTensor(self.agent.model(util.rotateTensor(lrbatch,270)),270)
+        return prob,prob2
+
     #TRAINING REGIMEN
     def optimize(self,data,iou_threshold=0.7,miniter=500):
         #EACH EPISODE TAKE ONE LR/HR PAIR WITH CORRESPONDING PATCHES
@@ -280,7 +310,7 @@ class SISR():
             LR,HR = self.getTrainingPatches(LR,HR)
             patch_ids = list(range(len(LR)))
 
-            batch_ids = random.sample(patch_ids,self.batch_size)
+            batch_ids = random.sample(patch_ids,self.batchsize)
             labels = torch.Tensor(batch_ids).long()
 
             lrbatch = LR[labels,:,:,:]
@@ -290,7 +320,13 @@ class SISR():
 
             # GET SISR RESULTS FROM EACH MODEL
             sisrs = []
+
+            # gather probabilities
+            #probs  = self.getProbs(lrbatch)
             probs = self.agent.model(lrbatch)
+
+            # get unsupervised segmentation loss
+            # selectionloss = self.lossfn(probs.reshape(-1,self.k),probs2.reshape(-1,self.k))
             for j, sisr in enumerate(self.SRmodels):
                 hr_pred = sisr(lrbatch)
                 sisrs.append(hr_pred)
@@ -298,13 +334,11 @@ class SISR():
             choice_val, choice = probs.max(dim=1)
 
             # UPDATE BOTH THE SISR MODELS AND THE SELECTION MODEL ACCORDING TO THEIR LOSS
-            SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
+            SR_result = torch.zeros(self.batchsize,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
             l2diff = []
             for j, sr in enumerate(sisrs):
                 self.SRoptimizers[j].zero_grad()
                 diff = (sr-hrbatch).pow(2).sum(dim=1)
-                #diff = torch.abs(sr-hrbatch).sum(1)
-                #sisrloss += probs[:,j] * diff
                 l2diff.append(diff)
                 pred = sr * probs[:,j].unsqueeze(1)
                 SR_result += pred
@@ -312,10 +346,26 @@ class SISR():
             diffmap = torch.nn.functional.softmax(-1 * (l2diff - torch.mean(l2diff)),dim=1)
             self.agent.opt.zero_grad()
             minval, minidx = l2diff.min(dim=1)
+            correct = torch.zeros(self.batchsize*(self.PATCH_SIZE*self.UPSIZE)**2,2).cuda()
+            correct.requires_grad = False
+            correct[:,1] = (minidx == choice).float().sum() / (self.batchsize * (self.PATCH_SIZE*self.UPSIZE)**2)
+            correct[:,0] = 1 - correct[:,1]
+            #mutual_info = self.mutualInformation(probs.reshape(-1,self.k),correct)
 
             # another option is to minimize intraclass/interclass probabilities
-            sisrloss = torch.sum(l2diff.gather(1, choice.unsqueeze(1)))
-            selectionloss = torch.mean(-1 * (probs.gather(1,minidx.unsqueeze(1)) + 1e-16).log())        # cross entropy loss with one hot ground truth
+            #sisrloss = torch.sum(minval)
+            #sisrloss = torch.mean(l2diff.gather(1,choice.unsqueeze(1)))                                                 # prob max sum
+            sisrloss = torch.mean(l2diff.gather(1,choice.unsqueeze(1)))                                                 # prob max
+            #sisrloss = torch.nn.functional.l1_loss(SR_result,hrbatch)                                                           # ensemble
+            #sisrloss = torch.sum(l2diff.gather(1,choice.unsqueeze(1))) + torch.sum(minval)
+            #sisrloss = torch.mean(l2diff.gather(1, choice.unsqueeze(1))) + 1000*torch.nn.functional.l1_loss(SR_result,hrbatch)       # mean loss    *original
+            #sisrloss = torch.mean(l2diff.gather(1, choice.unsqueeze(1))) + torch.nn.functional.l1_loss(SR_result,hrbatch)*1000       # mean loss no alpha
+
+
+            #selectionloss = torch.mean(-1 * (probs.gather(1,minidx.unsqueeze(1)) + 1e-16).log())        # cross entropy loss with one hot ground truth
+            #selectionloss = self.conditionalEntropy(probs.reshape(-1,self.k),correct)
+            #selectionloss = cond_info + torch.mean(-1 * (probs.gather(1,minidx.unsqueeze(1)) + 1e-16).log())
+            selectionloss = self.mutualInformation(probs.reshape(-1,self.k),correct)
 
             sisrloss_total = sisrloss + selectionloss
             sisrloss_total.backward()
