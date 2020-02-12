@@ -29,7 +29,11 @@ import utility
 class Tester():
     def __init__(self,agent=None,SRmodels=None,args=args,testset=['Set5','Set14','B100']):
         self.device = args.device
-        if args.evaluate or args.ensemble or args.viewM or args.testbasic or args.baseline:
+
+        if args.test_baseline:
+            self.load_baseline(args)
+
+        elif args.evaluate or args.ensemble or args.viewM or args.testbasic or args.baseline or args.test:
             if args.model_dir == "" and not args.baseline: print("TRAINED AGENT AND SISR MODELS REQUIRED TO EVALUATE OR VIEW ALLOCATION"); quit();
             else:
                 #LOADS THE TRAINED MODELS AND AGENT
@@ -48,6 +52,22 @@ class Tester():
         self.PATCH_SIZE = args.patchsize
         self.name = args.name
         self.model = args.model
+
+    # load rcan model only
+    def load_baseline(self,args):
+        if args.model == 'ESRGAN':
+            model = arch.RRDBNet(3,3,64,23,gc=32)
+            model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
+        elif args.model == 'RCAN':
+            torch.manual_seed(args.seed)
+            checkpoint = utility.checkpoint(args)
+            if checkpoint.ok:
+                module = import_module('model.rcan')
+                model = module.make_model(args).to(self.device)
+                kwargs = {}
+            else: print('error loading RCAN model. QUITING'); quit();
+            model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=True)
+        self.SRmodels = [model]
 
     #LOAD A PRETRAINED AGENT WITH SUPER RESOLUTION MODELS
     def load(self,args):
@@ -126,8 +146,7 @@ class Tester():
         return info
 
     #EVALUATE A PARTICULAR MODEL USING FINAL G FUNCTION
-    #NOT MADE YET
-    def evaluate_baseline(self,lr,hr):
+    def evaluate_baseline(self,lr,hr=None):
         if self.model == 'ESRGAN': lr = lr * 1.0 / 255.0
         img = torch.FloatTensor(lr).to(self.device)
         lr_img = img.permute((2,0,1)).unsqueeze(0)
@@ -135,14 +154,19 @@ class Tester():
         self.SRmodels[0].eval()
         SR = self.SRmodels[0](lr_img)
         SR = SR.squeeze(0).permute(1,2,0).data.cpu().numpy()
+
         if self.model == 'ESRGAN':
-            SR = np.clip(SR * 255.0,0,255)
-            psnr,ssim = util.calc_metrics(hr,SR,4)
+            SR = np.clip(SR,0,1)
+            SR *= 255.0
         elif self.model == 'RCAN':
             SR = np.clip(SR,0,255)
+
+        result = {'SR': SR}
+
+        if hr:
             psnr,ssim = util.calc_metrics(hr,SR,4)
 
-        return psnr,ssim,SR
+        return result
 
     #EVALUATE THE INPUT AND GET SR RESULT
     def evaluate(self,lr):
@@ -496,7 +520,18 @@ if __name__ == '__main__':
                 cv2.imshow('High Res',cv2.cvtColor(hrimg,cv2.COLOR_BGR2RGB))
                 cv2.imshow('Super Res',cv2.cvtColor(SR,cv2.COLOR_BGR2RGB))
                 cv2.waitKey(0)
+        elif args.test_baseline:
+            if args.lrimg != "":
+                finname = args.lrimg
+                foutname = args.lrimg + '.SR4x.png'
 
+                lrimg = imageio.imread(args.lrimg)
+                result = testing_regime.evaluate_baseline(lrimg)
+                hrimg = result['SR'] / 255.0
+
+                plt.imshow(hrimg)
+                plt.imsave(foutname,hrimg)
+                plt.show()
 
         elif args.testbasic:
             if args.hrimg != "":

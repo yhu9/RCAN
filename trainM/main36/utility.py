@@ -5,7 +5,7 @@ import datetime
 from functools import reduce
 
 import matplotlib
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import numpy as np

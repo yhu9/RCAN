@@ -186,6 +186,7 @@ class Tester():
         grays = []
         for i,sisr in enumerate(self.SRmodels):
             sr = sisr(lr)
+            if self.model != 'ESRGAN': sr = sr / 255.0
             gray = sr.mean(dim=1)
             grays.append(gray)
             SR_result.append(sr)
@@ -208,7 +209,7 @@ class Tester():
         minvals,idxlow = l2diff.min(dim=0)
         maxvals,idxhigh= l2diff.max(dim=0)
 
-        advantage = torch.nn.functional.softmax(-255 * (l2diff - torch.mean(l2diff)),dim=1)
+        advantage = torch.nn.functional.softmax(-255 * l2diff - l2diff.mean(dim=0).unsqueeze(0),dim=0).squeeze(1)
         upperboundmask = torch.nn.functional.one_hot(idxlow,len(l2diff)).permute(0,3,1,2)
         lowerboundmask = torch.nn.functional.one_hot(idxhigh,len(l2diff)).permute(0,3,1,2)
 
@@ -264,7 +265,9 @@ class Tester():
             #APPLY SISR ON EACH LR IMAGE AND GATHER RESULTS
             for hr_file,lr_file in zip(HR_files,LR_files):
                 hr = imageio.imread(hr_file) / 255.0
-                lr = imageio.imread(lr_file) / 255.0
+                lr = imageio.imread(lr_file)
+                if self.model == 'ESRGAN':
+                    lr = lr / 255.0
 
                 #EVALUATE AND GATHER STATISTICS
                 selection_details = self.evaluateBounds(lr,hr)

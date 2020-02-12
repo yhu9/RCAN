@@ -140,8 +140,6 @@ class SISR():
 
         #requires pytorch 1.1.0+ which is not possible on the server
         #scheduler = torch.optim.lr_scheduler.CyclicLR(self.agent.optimizer,base_lr=0.0001,max_lr=0.1)
-        unfold_LR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE,stride=self.PATCH_SIZE,dilation=1)
-        unfold_HR = torch.nn.Unfold(kernel_size=self.PATCH_SIZE*4,stride=self.PATCH_SIZE*4,dilation=1)
 
         #QUICK CHECK ON EVERYTHING
         #with torch.no_grad():
@@ -188,7 +186,10 @@ class SISR():
                     #GET SISR RESULTS FROM EACH MODEL
                     loss_SISR = 0
                     sisrs = []
-                    probs = self.agent.model(lrbatch)
+
+                    with torch.no_grad():
+                        self.agent.model.eval()
+                        probs = self.agent.model(lrbatch)
                     for sisr in self.SRmodels:
                         hr_pred = sisr(lrbatch)
                         sisrs.append(hr_pred)
@@ -196,11 +197,14 @@ class SISR():
                     #UPDATE BOTH THE SISR MODELS AND THE SELECTION MODEL ACCORDING TO THEIR LOSS
                     sisrloss = []
                     l1loss = []
+                    maxarg = probs.max(dim=1)[1]
+                    onehot_mask = torch.nn.functional.one_hot(maxarg,len(sisrs)).float()
                     for j, sr in enumerate(sisrs):
                         self.SRoptimizers[j].zero_grad()
                         l1 = torch.abs(sr - hrbatch).sum(dim=1).sum(dim=1).sum(dim=1) / ((self.PATCH_SIZE * self.UPSIZE)**2 * 3)
+                        #loss = torch.mean(l1 * probs[:,j])
+                        loss = torch.mean(l1 * onehot_mask[:,j])
                         l1loss.append(l1)
-                        loss = torch.mean(l1 * probs[:,j])
                         sisrloss.append(loss)
 
                     l1loss = torch.stack(l1loss,dim=1)
@@ -208,7 +212,7 @@ class SISR():
                     sisrloss_total = sum(sisrloss)
                     sisrloss_total.backward()
                     [opt.step() for opt in self.SRoptimizers]
-                    self.agent.opt.step()
+                    #self.agent.opt.step()
 
                     #[sched.step() for sched in self.schedulers]
                     #self.agent.scheduler.step()
@@ -223,15 +227,13 @@ class SISR():
                     c1 = (choice == 0).float().mean()
                     c2 = (choice == 1).float().mean()
                     c3 = (choice == 2).float().mean()
-                    s1 = sisrloss[0]
-                    s2 = sisrloss[1]
-                    s3 = sisrloss[2]
-                    #s1 = torch.mean(l1loss[:,0])
-                    #s2 = torch.mean(l1loss[:,1])
-                    #s3 = torch.mean(l1loss[:,2])
+                    s1 = torch.mean(l1loss[:,0]).item()
+                    s2 = torch.mean(l1loss[:,1]).item()
+                    s3 = torch.mean(l1loss[:,2]).item()
                     agentloss = torch.mean(l1loss.gather(1,choice.unsqueeze(1)))
                     print('\rEpoch/img: {}/{} | LR sr/ag: {:.8f}/{:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f} | s1: {:.4f} | s2: {:.4f} | s3: {:.4f}'\
-                            .format(c,n,lr,lr2,agentloss.item(),sisrloss_total.item(),s1.item(),s2.item(),s3.item()),end="\n")
+                            .format(c,n,lr,lr2,agentloss.item(),sisrloss_total.item(),s1,s2,s3),end="\n")
+
 
                     #LOG AND SAVE THE INFORMATION
                     scalar_summaries = {'Loss/AgentLoss': agentloss, 'Loss/SISRLoss': sisrloss_total, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3, "sisr/s1": s1, "sisr/s2": s2, "sisr/s3": s3}
@@ -243,8 +245,6 @@ class SISR():
                     if self.logger.step % 100 == 0:
                         with torch.no_grad():
                             psnr,ssim,info = self.test.validateSet5(save=False,quick=False)
-                        self.agent.model.train()
-                        [model.train() for model in self.SRmodels]
                         if self.logger:
                             self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
                             weightedmask = torch.from_numpy(info['mask']).permute(2,0,1) / 255.0
@@ -255,6 +255,9 @@ class SISR():
                             srimg = torch.from_numpy(info['max']).permute(2,0,1) / 255.0
                             self.logger.image_summary({'Testing/Test Assignment':mask[:3],'Testing/Weight': weightedmask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/optimalmask': optimal_mask})
                         self.savemodels()
+                        self.agent.model.train()
+                        [model.train() for model in self.SRmodels]
+
                     self.logger.incstep()
 
 ########################################################################################################

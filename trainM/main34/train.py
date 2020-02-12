@@ -220,7 +220,7 @@ class SISR():
     # OPTIMIZE SR MODELS AND SELECTION MODEL WITH CURRICULUM FOR 5 EPOCHS BY DEFAULT
     # input: data => 1D list of ints
     # output: none
-    def optimize(self, data,iou_threshold=0.8):
+    def optimize(self, data,iou_threshold=0.5):
         self.agent.model.train()
         [model.train() for model in self.SRmodels]
         agent_iou = deque(maxlen=100)
@@ -337,7 +337,7 @@ class SISR():
 
         # START TRAINING
         #data = set(range(len(self.TRAINING_HRPATH))[:10])
-        data = set(range(len(self.TRAINING_HRPATH))[:100])
+        data = set(range(len(self.TRAINING_HRPATH)))
         #data.remove(alpha)
         curriculum = [alpha]
         self.optimize(curriculum,iou_threshold=0.5)
@@ -349,7 +349,7 @@ class SISR():
             A = [a[0] for a in difficulty[-beta:]]
             curriculum += A
             [data.remove(a) for a in A]
-            self.optimize(curriculum)
+            self.optimize(curriculum,iou_threshold=0.5)
 
 ########################################################################################################
 ########################################################################################################

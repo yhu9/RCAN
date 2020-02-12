@@ -229,23 +229,24 @@ def calc_ssim(img1, img2):
         raise ValueError('Wrong input image dimensions.')
 
 #TRAINING IMG LOADER WITH VARIABLE PATCH SIZES AND UPSCALE FACTOR
-def getTrainingPatches(LR,HR,args):
+def getTrainingPatches(LR,HR,args,transform=True):
     patch_size = args.patchsize
     upsize = args.upsize
 
     #RANDOMLY FLIP AND ROTATE IMAGE
-    bit1 = random.random() > 0.5
-    bit2 = random.random() > 0.5
-    bit3 = random.random() > 0.5
-    if bit1:
-        LR = np.rot90(LR)
-        HR = np.rot90(HR)
-    if bit2:
-        LR = np.flip(LR,axis=1)
-        HR = np.flip(HR,axis=1)
-    if bit3:
-        LR = np.flip(LR,axis=0)
-        HR = np.flip(HR,axis=0)
+    if transform:
+        bit1 = random.random() > 0.5
+        bit2 = random.random() > 0.5
+        bit3 = random.random() > 0.5
+        if bit1:
+            LR = np.rot90(LR)
+            HR = np.rot90(HR)
+        if bit2:
+            LR = np.flip(LR,axis=1)
+            HR = np.flip(HR,axis=1)
+        if bit3:
+            LR = np.flip(LR,axis=0)
+            HR = np.flip(HR,axis=0)
 
     #ENSURE BOXES of size patch_size CAN FIT OVER ENTIRE IMAGE
     h,w,d = LR.shape

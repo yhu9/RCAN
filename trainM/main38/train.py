@@ -131,7 +131,6 @@ class SISR():
             #self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
             self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
             scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],1000,gamma=0.5)
-
             self.schedulers.append(scheduler)
 
         #INCREMENT SCHEDULES TO THE CORRECT LOCATION

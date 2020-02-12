@@ -264,36 +264,45 @@ class SISR():
                         l1diff.append(l1)
                         pred = sr * probs[:,j].unsqueeze(1)
                         SR_result += pred
-                    sisrloss.backward()
-                    [opt.step() for opt in self.SRoptimizers]
+                    self.agent.opt.zero_grad()
+                    maxval,maxidx = probs.max(dim=1)
                     l1diff = torch.stack(l1diff,dim=1)
+                    #var = torch.var(l1diff,dim=1,keepdim=True)
+                    #sisrloss_total = sisrloss - torch.mean(var)
+                    sisrloss_total = sisrloss
+                    sisrloss_total.backward()
+                    #sisrloss.backward()
+                    [opt.step() for opt in self.SRoptimizers]
+                    self.agent.opt.step()
+
+                    #l1diff = torch.stack(l1diff,dim=1)
                     minval,minidx = l1diff.min(dim=1)
                     reward = (l1diff - l1diff.mean(1).unsqueeze(1)).detach() * -1
                     reward = reward.sign()
                     target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
+                    selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
 
                     #UPDATE OUR AGENT
-                    self.agent.opt.zero_grad()
-                    probs = self.agent.model(lrbatch)
-                    maxval,maxidx = probs.max(dim=1)
-                    selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
-                    if self.logger.step % 20 == 0:
-                        selectionloss.backward()
-                        self.agent.opt.step()
+                    #self.agent.opt.zero_grad()
+                    #probs = self.agent.model(lrbatch)
+                    #if self.logger.step % 1 == 0:
+                    #    selectionloss.backward()
+                    #    self.agent.opt.step()
 
                     #[sched.step() for sched in self.schedulers]
-                    #self.agent.scheduler.step()
+                    self.agent.scheduler.step()
 
                     #CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
                     lr = self.SRoptimizers[-1].param_groups[0]['lr']
+                    lr2 = self.agent.opt.param_groups[0]['lr']
                     SR_result = SR_result / 255
                     hrbatch = hrbatch / 255
                     choice = probs.max(dim=1)[1]
                     c1 = (choice == 0).float().mean()
                     c2 = (choice == 1).float().mean()
                     c3 = (choice == 2).float().mean()
-                    print('\rEpoch/img: {}/{} | LR: {:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
-                            .format(c,n,lr,selectionloss.item(),sisrloss.item(), c1.item(), c2.item(), c3.item()),end="\n")
+                    print('\rEpoch/img: {}/{} | LR sr/ag: {:.8f}/{:.8f} | Agent Loss: {:.4f}, SISR Loss: {:.4f}, c1: {:.4f}, c2: {:.4f}, c3: {:.4f}'\
+                            .format(c,n,lr,lr2,selectionloss.item(),sisrloss.item(), c1.item(), c2.item(), c3.item()),end="\n")
 
                     #LOG AND SAVE THE INFORMATION
                     scalar_summaries = {'Loss/AgentLoss': selectionloss, 'Loss/SISRLoss': sisrloss, "choice/c1": c1, "choice/c2": c2, "choice/c3": c3}

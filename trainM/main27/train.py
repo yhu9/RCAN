@@ -114,7 +114,7 @@ class SISR():
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
 
-            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-4))
+            self.SRoptimizers.append(torch.optim.Adam(model.parameters(),lr=1e-5))
             scheduler = torch.optim.lr_scheduler.StepLR(self.SRoptimizers[-1],200,gamma=0.8)
 
             self.schedulers.append(scheduler)
@@ -245,8 +245,7 @@ class SISR():
                     #GET SISR RESULTS FROM EACH MODEL
                     loss_SISR = 0
                     sisrs = []
-                    with torch.no_grad():
-                        probs = self.agent.model(lrbatch)    #SO WE DON'T TAKE LOG OF 0...
+                    probs = self.agent.model(lrbatch)    #SO WE DON'T TAKE LOG OF 0...
                     maxval,maxidx = probs.max(dim=1)
                     for j, sisr in enumerate(self.SRmodels):
                         hr_pred = sisr(lrbatch)
@@ -254,45 +253,41 @@ class SISR():
 
                     #UPDATE BOTH THE SISR MODELS AND THE SELECTION MODEL ACCORDING TO THEIR LOSS
                     SR_result = torch.zeros(self.batch_size,3,self.PATCH_SIZE * self.UPSIZE,self.PATCH_SIZE * self.UPSIZE).to(self.device)
+                    sisrloss = 0
                     l1diff = []
                     for j, sr in enumerate(sisrs):
                         self.SRoptimizers[j].zero_grad()
-                        mask = maxidx == j
-                        pred = sr * probs[:,j].unsqueeze(1)
-                        #pred = sr * mask.unsqueeze(1).float()
-                        #pred = sr * (mask.unsqueeze(1).float() * maxval.unsqueeze(1))
-                        SR_result += pred
+                        loss = torch.mean(lossfn(sr,hrbatch) * probs[:,j].unsqueeze(1))
+                        sisrloss += loss
                         l1 = torch.abs(sr-hrbatch).mean(dim=1)
                         l1diff.append(l1)
+                        pred = sr * probs[:,j].unsqueeze(1)
+                        SR_result += pred
+                    sisrloss.backward()
+                    [opt.step() for opt in self.SRoptimizers]
+
                     l1diff = torch.stack(l1diff,dim=1)
                     minval,minidx = l1diff.min(dim=1)
                     reward = (l1diff - l1diff.mean(1).unsqueeze(1)).detach() * -1
+                    reward = reward.sign()
                     target = torch.nn.functional.one_hot(minidx,len(sisrs)).permute(0,3,1,2)    #TARGET PROBABILITY MASK WE HOPE FOR?
 
-                    #UPDATE SISR MODELS
-                    sisrloss = lossfn(SR_result,hrbatch)
-                    sisrloss.backward()
-                    [opt.step() for opt in self.SRoptimizers]
-                    [sched.step() for sched in self.schedulers]
-
-                    #UPDATE SELECTION MODEL
+                    #UPDATE OUR AGENT
                     self.agent.opt.zero_grad()
-                    probs = self.agent.model(lrbatch).clamp(1e-10,1)    #SO WE DON'T TAKE LOG OF 0...
+                    probs = self.agent.model(lrbatch)
                     maxval,maxidx = probs.max(dim=1)
 
                     # MAKE AN ACTION WITH RANDOM ACTIONS AND DECAY TOWARDS GREEDY
                     action = maxidx.unsqueeze(1)
-                    temp = 0.05 + (1 - 0.05) * math.exp(-self.logger.step * (1/1e4))
+                    temp = 0.05 + (1 - 0.05) * math.exp(-self.logger.step * (1/1e3))
                     randmap = torch.rand(action.shape).cuda()
                     randchoice = torch.rand(probs.shape).max(dim=1)[1].cuda()
                     randmask = randmap <= temp
                     action = action * (1 - randmask.float()) + randmask.float() * randchoice.unsqueeze(1)
 
-                    selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).log() * reward.gather(1,maxidx.unsqueeze(1)))
-                    #selectionloss = torch.mean(-1 * probs.gather(1,minidx.unsqueeze(1)).log()) + torch.mean(1 - maxval)
+                    selectionloss = torch.mean(probs.gather(1,action.long()).clamp(1e-10,1).log() * reward.gather(1,action.long()))
                     selectionloss.backward()
                     self.agent.opt.step()
-                    #self.agent.scheduler.step()
 
                     #CONSOLE OUTPUT FOR QUICK AND DIRTY DEBUGGING
                     lr = self.SRoptimizers[-1].param_groups[0]['lr']

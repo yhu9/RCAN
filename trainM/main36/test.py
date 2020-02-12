@@ -11,6 +11,7 @@ import scipy.io as sio
 import imageio
 from importlib import import_module
 import matplotlib.pyplot as plt
+import matplotlib
 
 #CUSTOM IMPORTS
 import RRDBNet_arch as arch
@@ -60,6 +61,8 @@ class Tester():
         for i in range(args.action_space):
             if args.model == 'ESRGAN':
                 model = arch.RRDBNet(3,3,64,23,gc=32)
+            elif args.model == 'basic':
+                model = arch.RRDBNet(3,3,32,args.d,gc=8,upsize=args.upsize)
             elif args.model == 'RCAN':
                 torch.manual_seed(args.seed)
                 checkpoint = utility.checkpoint(args)
@@ -158,6 +161,10 @@ class Tester():
             sr = sisr(lr)
             weighted_pred = sr * choices[:,i]
             SR_result += weighted_pred
+            img = sr.squeeze(0).permute(1,2,0).clamp(0,1).data.cpu().numpy()
+            plt.imshow(img)
+            plt.savefig("/home/huynshen/fig"+str(i)+".png",bbox_inches='tight')
+            plt.show()
 
         #FORMAT THE OUTPUT
         SR_result = SR_result.clamp(0,255)
@@ -174,28 +181,18 @@ class Tester():
         hr = torch.FloatTensor(hr).to(self.device)
         lr = lr.permute((2,0,1)).unsqueeze(0)
         hr = hr.permute((2,0,1)).unsqueeze(0)
-        if self.model == 'ESRGAN' or self.model == 'basic':
-            lr = lr / 255.0
+        SR_result = []
 
         #GET EACH SR RESULT
         bestchoice = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
         worstchoice = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
         weightedchoice = torch.zeros(1,3,h * self.upsize,w * self.upsize).to(self.device)
-        SR_result = []
-        for i, sisr in enumerate(self.SRmodels):
-            sr = sisr(lr)
-            if self.model == 'ESRGAN' or self.model == 'basic':
-                sr = sr * 255.0
-            SR_result.append(sr)
-
         choices = self.agent.model(lr)
-
         lowchoice, idxlow = choices.min(dim=1)
         maxchoice, idxhigh = choices.max(dim=1)
-        l2diff = []
-        for i,sr in enumerate(SR_result):
-            l2 = (sr - hr).pow(2).mean(dim=1)
-            l2diff.append(l2)
+        for i, sisr in enumerate(self.SRmodels):
+            sr = sisr(lr)
+            SR_result.append(sr)
             masklow = idxlow == i
             maskhigh = idxhigh == i
             weightedchoice += sr * choices[:,i]
@@ -203,9 +200,14 @@ class Tester():
             bestchoice += sr * maskhigh.float()
 
         #GET EUCLIDEAN DISTANCE FOR EACH PIXEL
+        l2diff = []
+        for sr in SR_result:
+            diff = (sr - hr).pow(2).mean(dim=1)
+            l2diff.append(diff)
         l2diff = torch.stack(l2diff,dim=1)
         minvals,idxlow = l2diff.min(dim=1)
         maxvals,idxhigh= l2diff.max(dim=1)
+        advantage = (l2diff - torch.min(l2diff)) / torch.max(l2diff)
 
         # create lower and upper bound mask for visual
         upperboundmask = torch.zeros(l2diff.shape)
@@ -224,19 +226,24 @@ class Tester():
             upperboundImg += masklow.float().unsqueeze(1) * SR_result[i]
 
         #FORMAT THE OUTPUT
-        lowerboundImg = lowerboundImg.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
-        upperboundImg = upperboundImg.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
-        bestchoice = bestchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
-        worstchoice = worstchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        diff = l2diff.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        lowerboundImg = lowerboundImg.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        upperboundImg = upperboundImg.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        bestchoice = bestchoice.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        worstchoice = worstchoice.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
         weightedchoice = weightedchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
-        choices = choices.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy() * 255
+        choices = choices.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
+        idxlow = idxlow.squeeze(0).data.cpu().numpy()
+        idxhigh = idxhigh.squeeze(0).data.cpu().numpy()
 
-        info = {'HR': hr,'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'choices': choices, 'upperboundmask': upperboundmask, 'lowerboundmask': lowerboundmask}
+        info = {'HR': hr,'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'choices': choices, 'idxlow': idxlow, 'idxhigh': idxhigh, 'upperboundmask': upperboundmask, 'lowerboundmask': lowerboundmask, 'advantage': advantage, 'diff': diff}
 
         return info
 
     #GATHER STATISTICS FROM SR RESULT AND GROUND TRUTH
     def getstats(self,sr,hr):
+        sr = (sr * 255).clip(0,255)
+        hr = hr * 255
         psnr,ssim = util.calc_metrics(hr,sr,crop_border=self.upsize)
         return psnr,ssim
 
@@ -245,7 +252,7 @@ class Tester():
         scores = {}
         [model.eval() for model in self.SRmodels]
         self.agent.model.eval()
-        self.validationsets = ['Set5']
+        self.validationsets = ['Starfish']
 
         for vset in self.validationsets:
             scores[vset] = []
@@ -261,8 +268,8 @@ class Tester():
             LR_files.reverse()
             #APPLY SISR ON EACH LR IMAGE AND GATHER RESULTS
             for hr_file,lr_file in zip(HR_files,LR_files):
-                hr = imageio.imread(hr_file)
-                lr = imageio.imread(lr_file)
+                hr = imageio.imread(hr_file) / 255.0
+                lr = imageio.imread(lr_file) / 255.0
 
                 #EVALUATE AND GATHER STATISTICS
                 selection_details = self.evaluateBounds(lr,hr)
@@ -282,7 +289,7 @@ class Tester():
                 if quick: break
                 if save:
                     #save info for each file tested
-                    for method in ['best','worst','weighted','lower','upper','variance','choices']:
+                    for method in ['best','worst','weighted','lower','upper','choices']:
                         filename = os.path.join('runs',method + '_' + os.path.basename(lr_file))
                         imageio.imwrite(filename,selection_details[method].astype(np.uint8))
                         if method == 'choices':
@@ -314,7 +321,7 @@ class Tester():
 
         for vset in self.validationsets:
             scores[vset] = []
-            HR_dir = os.path.join(self.hr_rootdir,vset)
+            HR_dir = os.path.join(self.hr_rootdir,vset,'x'+str(self.upsize))
             LR_dir = os.path.join(os.path.join(self.lr_rootdir,vset),self.resfolder)
 
             #SORT THE HR AND LR FILES IN THE SAME ORDER
@@ -327,20 +334,31 @@ class Tester():
 
             #APPLY SISR ON EACH LR IMAGE AND GATHER RESULTS
             for hr_file,lr_file in zip(HR_files,LR_files):
-                hr = imageio.imread(hr_file)
-                lr = imageio.imread(lr_file)
+                hr = imageio.imread(hr_file) / 255.0
+                lr = imageio.imread(lr_file) / 255.0
 
                 #EVALUATE AND GATHER STATISTICS
-                sr,choices = self.evaluate(lr)
-                psnr,ssim = self.getstats(sr,hr)
+                testing_detail = self.evaluateBounds(lr,hr)
+                psnr,ssim = self.getstats(testing_detail['weighted'],hr)
+                upperpsnr,upperssim = self.getstats(testing_detail['lower'],hr)
+                lowerpsnr,lowerssim = self.getstats(testing_detail['upper'],hr)
 
                 info = {}
                 info['LRimg'] = lr
                 info['HRimg'] = hr
                 info['psnr'] = psnr
                 info['ssim'] = ssim
-                info['SRimg'] = sr
-                info['assignment'] = choices
+                info['upperpsnr'] = upperpsnr
+                info['upperssim'] = upperssim
+                info['lowerpsnr'] = lowerpsnr
+                info['lowerssim'] = lowerssim
+                info['SRimg'] = testing_detail['weighted']
+                info['assignment'] = testing_detail['choices']
+                info['lower'] = testing_detail['upper']
+                info['upper'] = testing_detail['lower']
+                info['uppermask'] = testing_detail['idxlow']
+                info['lowermask'] = testing_detail['idxhigh']
+
                 print(lr_file,psnr,ssim)
                 scores[vset].append([psnr,ssim])
                 if quick: break
@@ -348,8 +366,6 @@ class Tester():
                 #save info for each file tested
                 if save:
                     filename = os.path.join('runs',vset + os.path.basename(hr_file)+'.mat')
-                    info['LRimg'] = lr
-                    info['HRimg'] = hr
                     info['LR_DIR'] = lr_file
                     info['HR_DIR'] = hr_file
                     sio.savemat(filename,info)
@@ -477,7 +493,6 @@ if __name__ == '__main__':
             print(data[0])
             np.mean(data)
             np.std(data)
-            #matplotlib.use('tkagg')
             plt.hist(data,bins='auto')
             plt.title("histogram of the weight data")
             plt.show()
@@ -504,9 +519,12 @@ if __name__ == '__main__':
 
         elif args.testbasic:
             if args.hrimg != "":
-                lrimg = imageio.imread(args.lrimg)
-                hrimg = imageio.imread(args.hrimg)
-                psnr,ssim,info = testing_regime.evaluate_ideal(lrimg,hrimg)                     #evaluate the low res image and get testing metrics
+                lrimg = imageio.imread(args.lrimg) /  255.0
+                hrimg = imageio.imread(args.hrimg) / 255.0
+
+                srimg,choices = testing_regime.evaluate(lrimg)
+                quit()
+                #psnr,ssim,info = testing_regime.evaluate_ideal(lrimg,hrimg)                     #evaluate the low res image and get testing metrics
                 choice = testing_regime.getPatchChoice(info)             #get colored mask on k model decisions
                 localinfo = testing_regime.getLocalScore(info['SRimg'],hrimg)
 

@@ -1,9 +1,11 @@
 import os
 import math
 from datetime import datetime
+
 import numpy as np
 from PIL import Image
 import cv2
+import torch
 
 ####################
 # miscellaneous
@@ -225,3 +227,24 @@ def calc_ssim(img1, img2):
             return ssim(np.squeeze(img1), np.squeeze(img2))
     else:
         raise ValueError('Wrong input image dimensions.')
+
+# translate numpy image
+def translateXPos(img, d=4):
+    h,w,d = img.shape
+
+def translateYPos(img, d=4):
+    h,w,d = img.shape
+
+# rotate 4d image tensor of BxCxHxW by desired interval of 90 degrees
+def rotateTensor(img, angle=90):
+    if angle == 90:
+        return img.transpose(2,3)
+    elif angle == 180:
+        return img.flip(4).flip(3)
+    elif angle == 270:
+        return img.transpose(2,3).flip(4).flip(3)
+
+# mirror 4d image tensor of BxCxHxW
+def mirrorTensor(img):
+    return img.flip(3)
+

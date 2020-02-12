@@ -79,8 +79,8 @@ class SISR():
 
         if args.model_dir != "":
             loadedparams = torch.load(args.model_dir,map_location=self.device)
-            #self.agent = agent.Agent(args,chkpoint=loadedparams)
-            self.agent = agent.Agent(args)
+            self.agent = agent.Agent(args,chkpoint=loadedparams)
+            #self.agent = agent.Agent(args)
         else:
             self.agent = agent.Agent(args)
         self.SRmodels = []
@@ -90,9 +90,9 @@ class SISR():
 
             #CREATE THE ARCH
             if args.model == 'basic':
-                model = arch.RRDBNet(3,3,32,args.d,gc=8)
+                model = arch.RRDBNet(3,3,32,args.d,gc=8,upsize=args.upsize)
             elif args.model == 'ESRGAN':
-                model = arch.RRDBNet(3,3,64,23,gc=32)
+                model = arch.RRDBNet(3,3,64,23,gc=32,upsize=args.upsize)
             elif args.model == 'RCAN':
                 torch.manual_seed(args.seed)
                 checkpoint = utility.checkpoint(args)
@@ -110,21 +110,29 @@ class SISR():
                 print('random init')
                 model.apply(init_weights)
             elif args.model == 'ESRGAN':
-                model.load_state_dict(torch.load(args.ESRGAN_PATH),strict=True)
+                loaded_dict = torch.load(args.ESRGAN_PATH)
+                model_dict = model.state_dict()
+                loaded_dict = {k: v for k, v in loaded_dict.items() if k in model_dict}
+                model_dict.update(loaded_dict)
+                model.load_state_dict(model_dict)
             elif args.model == 'RCAN':
                 print('RCAN loaded!')
                 model.load_state_dict(torch.load(args.pre_train,**kwargs),strict=True)
             elif args.model == 'basic':
                 if args.d == 1:
-                    model.load_state_dict(torch.load(args.basicpath_d1),strict=True)
+                    loaded_dict = torch.load(args.basicpath_d1)
                 elif args.d == 2:
-                    model.load_state_dict(torch.load(args.basicpath_d2),strict=True)
+                    loaded_dict = torch.load(args.basicpath_d2)
                 elif args.d == 4:
-                    model.load_state_dict(torch.load(args.basicpath_d4),strict=True)
+                    loaded_dict = torch.load(args.basicpath_d4)
                 elif args.d == 8:
-                    model.load_state_dict(torch.load(args.basicpath_d8),strict=True)
+                    loaded_dict = torch.load(args.basicpath_d8)
                 else:
                     print('no pretrained model available. Random initialization of basic block')
+                model_dict = model.state_dict()
+                loaded_dict = {k: v for k, v in loaded_dict.items() if k in model_dict}
+                model_dict.update(loaded_dict)
+                model.load_state_dict(model_dict)
 
             self.SRmodels.append(model)
             self.SRmodels[-1].to(self.device)
@@ -355,18 +363,19 @@ class SISR():
             # another option is to minimize intraclass/interclass probabilities
             #sisrloss = torch.sum(minval)
             #sisrloss = torch.mean(l2diff.gather(1,choice.unsqueeze(1)))                                                 # prob max sum
-            sisrloss = torch.mean(l2diff.gather(1,choice.unsqueeze(1)))                                                 # prob max
+            #sisrloss = torch.mean(l2diff.gather(1,choice.unsqueeze(1)))                                                 # prob max
             #sisrloss = torch.nn.functional.l1_loss(SR_result,hrbatch)                                                           # ensemble
             #sisrloss = torch.sum(l2diff.gather(1,choice.unsqueeze(1))) + torch.sum(minval)
-            #sisrloss = torch.mean(l2diff.gather(1, choice.unsqueeze(1))) + 1000*torch.nn.functional.l1_loss(SR_result,hrbatch)       # mean loss    *original
-            #sisrloss = torch.mean(l2diff.gather(1, choice.unsqueeze(1))) + torch.nn.functional.l1_loss(SR_result,hrbatch)*1000       # mean loss no alpha
+            sisrloss = torch.mean(l2diff.gather(1, choice.unsqueeze(1))) + 1000*torch.nn.functional.l1_loss(SR_result,hrbatch)       # mean loss    *original
+            #sisrloss = torch.mean(l2diff.gather(1, choice.unsqueeze(1))) + torch.nn.functional.l1_loss(SR_result,hrbatch)               # mean loss no alpha
 
 
-            #selectionloss = torch.mean(-1 * (probs.gather(1,minidx.unsqueeze(1)) + 1e-16).log())        # cross entropy loss with one hot ground truth
+            selectionloss = torch.mean(-1 * (probs.gather(1,minidx.unsqueeze(1)) + 1e-16).log())        # cross entropy loss with one hot ground truth
             #selectionloss = self.conditionalEntropy(probs.reshape(-1,self.k),correct)
             #selectionloss = cond_info + torch.mean(-1 * (probs.gather(1,minidx.unsqueeze(1)) + 1e-16).log())
-            selectionloss = self.mutualInformation(probs.reshape(-1,self.k),correct)
+            #selectionloss = self.mutualInformation(probs.reshape(-1,self.k),correct)
 
+            #sisrloss_total = sisrloss
             sisrloss_total = sisrloss + selectionloss
             sisrloss_total.backward()
             [opt.step() for opt in self.SRoptimizers]
@@ -405,11 +414,11 @@ class SISR():
                 [model.train() for model in self.SRmodels]
                 if self.logger:
                     self.logger.scalar_summary({'Testing_PSNR': psnr, 'Testing_SSIM': ssim})
-                    mask = torch.from_numpy(info['choices']).float().permute(2,0,1) / 255.0
+                    mask = torch.from_numpy(info['choices']).float().permute(2,0,1)
                     best_mask = info['upperboundmask'].squeeze()
                     worst_mask = info['lowerboundmask'].squeeze()
-                    hrimg = info['HR'].squeeze() / 255.0
-                    srimg = torch.from_numpy(info['weighted'] / 255.0).permute(2,0,1)
+                    hrimg = info['HR'].squeeze()
+                    srimg = torch.from_numpy(info['weighted'] ).permute(2,0,1).clamp(0,1)
                     self.logger.image_summary({'Testing/Test Assignment':mask[:3], 'Testing/SR':srimg, 'Testing/HR': hrimg, 'Testing/upperboundmask': best_mask[:3]})
                 self.savemodels()
             self.logger.incstep()

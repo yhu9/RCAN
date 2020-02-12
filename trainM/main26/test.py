@@ -485,6 +485,8 @@ if __name__ == '__main__':
                 lrimg = imageio.imread(args.lrimg)
                 hrimg = imageio.imread(args.hrimg)
                 psnr,ssim,SR = testing_regime.evaluate_baseline(lrimg,hrimg)                     #evaluate the low res image and get testing metrics
+                print(psnr,ssim)
+                quit()
                 localinfo = testing_regime.getLocalScore(SR,hrimg)
 
                 print("PSNR SCORE: {:.4f}".format(psnr) )
@@ -498,6 +500,8 @@ if __name__ == '__main__':
                 cv2.imshow('High Res',cv2.cvtColor(hrimg,cv2.COLOR_BGR2RGB))
                 cv2.imshow('Super Res',cv2.cvtColor(SR,cv2.COLOR_BGR2RGB))
                 cv2.waitKey(0)
+            else:
+                print('requires image pair to test')
 
 
         elif args.testbasic:

@@ -153,7 +153,6 @@ class Model(nn.Module):
 
     #FORWARD FUNCTION
     def forward(self,x):
-        #x = self.SegNet(x)['out']
         x = self.classifier(x)
         x = self.final(x)
         x = self.softmaxfn(x)

@@ -175,9 +175,9 @@ class Tester():
             weighted_pred = sr * choices[:,i]
             SR_result += weighted_pred
             img = sr.squeeze(0).permute(1,2,0).clamp(0,1).data.cpu().numpy()
-            plt.imshow(img)
-            plt.savefig("/home/huynshen/fig"+str(i)+".png",bbox_inches='tight')
-            plt.show()
+            #plt.imshow(img)
+            #plt.savefig("/home/huynshen/fig"+str(i)+".png",bbox_inches='tight')
+            #plt.show()
 
         #FORMAT THE OUTPUT
         SR_result = SR_result.clamp(0,1)
@@ -202,20 +202,14 @@ class Tester():
         choices = self.agent.model(lr)
         lowchoice, idxlow = choices.min(dim=1)
         maxchoice, idxhigh = choices.max(dim=1)
-        grays = []
         for i,sisr in enumerate(self.SRmodels):
             sr = sisr(lr)
-            gray = sr.mean(dim=1)
-            grays.append(gray)
             SR_result.append(sr)
             masklow = idxlow == i
             maskhigh = idxhigh == i
             weightedchoice += sr * choices[:,i]
             worstchoice += sr * masklow.float()
             bestchoice += sr * maskhigh.float()
-
-        grays = torch.stack(grays,0)
-        variance = torch.var(grays,0,keepdim=True,unbiased=False)
 
         #GET EUCLIDEAN DISTANCE FOR EACH PIXEL
         l2diff = []
@@ -250,12 +244,11 @@ class Tester():
         bestchoice = bestchoice.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
         worstchoice = worstchoice.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
         weightedchoice = weightedchoice.clamp(0,255).squeeze(0).permute(1,2,0).data.cpu().numpy()
-        variance = variance.squeeze().squeeze().data.cpu().numpy()
         choices = choices.clamp(0,1).squeeze(0).permute(1,2,0).data.cpu().numpy()
         idxlow = idxlow.squeeze(0).data.cpu().numpy()
         idxhigh = idxhigh.squeeze(0).data.cpu().numpy()
 
-        info = {'HR': hr,'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'variance': variance, 'choices': choices, 'idxlow': idxlow, 'idxhigh': idxhigh, 'upperboundmask': upperboundmask, 'lowerboundmask': lowerboundmask, 'advantage': advantage, 'diff': diff}
+        info = {'HR': hr,'best': bestchoice, 'worst': worstchoice, 'weighted': weightedchoice,'lower': lowerboundImg, 'upper': upperboundImg, 'choices': choices, 'idxlow': idxlow, 'idxhigh': idxhigh, 'upperboundmask': upperboundmask, 'lowerboundmask': lowerboundmask, 'advantage': advantage, 'diff': diff}
 
         return info
 
@@ -271,7 +264,7 @@ class Tester():
         scores = {}
         [model.eval() for model in self.SRmodels]
         self.agent.model.eval()
-        self.validationsets = ['Set5']
+        self.validationsets = ['Starfish']
 
         for vset in self.validationsets:
             scores[vset] = []
@@ -309,7 +302,7 @@ class Tester():
                 if quick: break
                 if save:
                     #save info for each file tested
-                    for method in ['best','worst','weighted','lower','upper','variance','choices']:
+                    for method in ['best','worst','weighted','lower','upper','choices']:
                         filename = os.path.join('runs',method + '_' + os.path.basename(lr_file))
                         imageio.imwrite(filename,selection_details[method].astype(np.uint8))
                         if method == 'choices':
@@ -621,7 +614,12 @@ if __name__ == '__main__':
                 cv2.waitKey(0)
 
             elif args.lrimg != "":
-                lrimg = imageio.imread(args.lrimg)
+                lrimg = imageio.imread(args.lrimg) / 255.0
+                srimg, choices = testing_regime.evaluate(lrimg)                     #evaluate the low res image and get testing metrics
+                plt.imshow(srimg)
+                plt.show()
+                plt.imsave(args.lrimg + '.SRx4ensemble.png',srimg)
+                quit()
                 print('your life is nothing')
             else:
                 print('your life is nothing')

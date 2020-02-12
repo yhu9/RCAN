@@ -193,17 +193,6 @@ class Model(nn.Module):
         x = self.softmaxfn(x)
         return x
 
-    #FORWARD FUNCTION
-    def raw(self,x):
-        #x = self.SegNet(x)['out']
-        x = self.first(x)
-        x = self.db1(x)
-        x = self.db2(x)
-        x = self.db3(x)
-        x = self.db4(x)
-        x = self.final(x)
-        return x
-
 #######################################################################################################
 
 #AGENT COMPRISES OF A MODEL SELECTION NETWORK AND MAKES ACTIONS BASED ON IMG PATCHES

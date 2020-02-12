@@ -63,7 +63,7 @@ class Model(nn.Module):
         super(Model,self).__init__()
 
         #self.SegNet = models.segmentation.fcn_resnet101(pretrained=True,num_classes=21)
-        self.SegNet = models.deeplabv3_resnet50(pretrained=False,num_classes=k)
+        #self.SegNet = models.deeplabv3_resnet50(pretrained=False,num_classes=k)
 
 
         self.first = torch.nn.Sequential(

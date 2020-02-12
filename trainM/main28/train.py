@@ -245,10 +245,13 @@ class SISR():
                     lrbatch = lrbatch.to(self.device)
                     hrbatch = hrbatch.to(self.device)
 
-                    #GET SISR RESULTS FROM EACH MODEL
+                    # GET SISR RESULTS FROM EACH MODEL
                     loss_SISR = 0
                     sisrs = []
+
+                    # get probabilities
                     probs = self.agent.model(lrbatch)
+
                     for j, sisr in enumerate(self.SRmodels):
                         hr_pred = sisr(lrbatch)
                         sisrs.append(hr_pred)
@@ -269,18 +272,18 @@ class SISR():
                     l1diff = torch.stack(l1diff,dim=1)
                     minval,minidx = l1diff.min(dim=1)
                     #maxval2,maxidx2 = l1diff.max(dim=1)
-                    #sisrloss2 = lossfn(SR_result,hrbatch)
-                    #sisrloss = minval.mean()
-                    sisrloss = torch.sum(l1diff.gather(1,maxidx.unsqueeze(1)))
-                    selectionloss = torch.mean(probs.gather(1,minidx.unsqueeze(1)).clamp(1e-16,1).log()) * -1
+                    sisrloss2 = lossfn(SR_result,hrbatch)
+                    #sisrloss = minval.mean()                                           # min loss
+                    sisrloss = torch.sum(l1diff.gather(1,maxidx.unsqueeze(1)))          # prob max loss
+                    selectionloss = torch.mean(probs.gather(1,minidx.unsqueeze(1)).clamp(1e-16,1).log()) * -1       # cross entropy loss
                     #selectionloss2 = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-16,1).log())
                     #sisrloss_total = sisrloss2
                     #sisrloss_total = sisrloss + selectionloss
                     #sisrloss_total = (sisrloss + sisrloss2)*1000 + selectionloss
-                    #sisrloss_total = sisrloss2 * 1000 + selectionloss + minval.mean()
+                    sisrloss_total = sisrloss2*1000 + selectionloss + sisrloss               # original
                     #sisrloss_total = selectionloss + minval.mean()
                     #sisrloss_total = selectionloss
-                    sisrloss_total = sisrloss + selectionloss
+                    #sisrloss_total = sisrloss + sisrloss2
                     sisrloss_total.backward()
                     [opt.step() for opt in self.SRoptimizers]
                     self.agent.opt.step()
@@ -292,8 +295,6 @@ class SISR():
                     target = torch.zeros(l1diff.shape)
                     for i in range(len(self.SRmodels)):
                         target[:,i] = (minidx == i).float()
-
-
 
                     #selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)).clamp(1e-10,1).log() * reward.gather(1,maxidx.unsqueeze(1)))
                     #selectionloss = torch.mean(probs.gather(1,maxidx.unsqueeze(1)) * reward)

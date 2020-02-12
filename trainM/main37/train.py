@@ -298,8 +298,7 @@ class SISR():
             minval, minidx = l2diff.min(dim=1)
 
             # loss sisr
-            #sisrloss = minval.mean()
-            sisrloss = loss.mean()
+            sisrloss = minval.mean()
 
             # loss selection
             self.agent.opt.zero_grad()
